@@ -1,0 +1,34 @@
+{
+  "almacenes": {
+    "VES": { "nombre": "VES", "prioridad": 1, "tipo_reporte": "DESAGREGADO", "rol": "PRINCIPAL", "participa_control": true },
+    "121": { "nombre": "CLVES_INSPECCION", "prioridad": 2, "tipo_reporte": "CONSOLIDADO", "rol": "SECUNDARIO", "participa_control": true },
+    "129": { "nombre": "CLVES_OUTLET", "prioridad": 3, "tipo_reporte": "DESAGREGADO", "rol": "SECUNDARIO", "participa_control": true },
+    "40": { "nombre": "APT", "prioridad": 4, "tipo_reporte": "DESAGREGADO", "rol": "SECUNDARIO", "participa_control": true },
+    "92": { "nombre": "INSPECCION", "prioridad": 6, "tipo_reporte": "PCT", "rol": "EXTERNO", "participa_control": false },
+    "106": { "nombre": "OUTLET", "prioridad": 7, "tipo_reporte": "PCT", "rol": "EXTERNO", "participa_control": false },
+    "118": { "nombre": "ALMACEN_118", "prioridad": 5, "tipo_reporte": "PCT", "rol": "EXTERNO", "participa_control": false },
+    "122": { "nombre": "EXPORTACION", "prioridad": 8, "tipo_reporte": "PCT", "rol": "EXTERNO", "participa_control": false }
+  },
+  "umbrales": {
+    "bajo_stock_unidades": 10,
+    "critico_stock_unidades": 5,
+    "porcentaje_alerta": 20,
+    "dias_tendencia": 7
+  },
+  "lineas": [
+    { "codigo": "PELOTAS", "nombre": "Pelotas", "grupo": "DEPORTES", "stock_minimo": 300 },
+    { "codigo": "ESCRITURA", "nombre": "Escritura", "grupo": "OFICINA", "stock_minimo": 200 },
+    { "codigo": "METALICA", "nombre": "Metálica", "grupo": "OFICINA", "stock_minimo": 200 },
+    { "codigo": "ARCHIVO", "nombre": "Archivo", "grupo": "OFICINA", "stock_minimo": 150 },
+    { "codigo": "DIBUJO", "nombre": "Dibujo", "grupo": "ARTE", "stock_minimo": 150 },
+    { "codigo": "PINTURA", "nombre": "Pintura", "grupo": "ARTE", "stock_minimo": 150 },
+    { "codigo": "PEGAMENTOS", "nombre": "Pegamentos", "grupo": "OFICINA", "stock_minimo": 100 },
+    { "codigo": "FORROS", "nombre": "Forros", "grupo": "OFICINA", "stock_minimo": 100 },
+    { "codigo": "DIDACTICOS", "nombre": "Didácticos", "grupo": "EDUCACION", "stock_minimo": 100 },
+    { "codigo": "MANUALIDADES", "nombre": "Manualidades", "grupo": "ARTE", "stock_minimo": 100 },
+    { "codigo": "ACCESORIOS", "nombre": "Accesorios", "grupo": "OFICINA", "stock_minimo": 100 },
+    { "codigo": "MASCOTAS", "nombre": "Mascotas", "grupo": "OTROS", "stock_minimo": 50 },
+    { "codigo": "REPRESENTADAS", "nombre": "Representadas", "grupo": "OTROS", "stock_minimo": 50 },
+    { "codigo": "SIN LINEA", "nombre": "Sin línea asignada", "grupo": "OTROS", "stock_minimo": 0 }
+  ]
+}

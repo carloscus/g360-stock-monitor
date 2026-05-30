@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.spec
+
+# Virtual environment
+.venv/
+
+# Environment
+.env
+
+# Logs
+run_log.txt
+dev_logs/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Portable copy (sync target)
+*-portable/
+
+# PyInstaller build artifacts
+*.exe

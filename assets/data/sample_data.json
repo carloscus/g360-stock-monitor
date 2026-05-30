@@ -1,0 +1,15 @@
+{
+  "VES": {
+    "76151": {"stock": 150, "predespacho": 20, "descripcion": "RESALTADOR VINIFAN", "linea": "0176"},
+    "11030": {"stock": 88, "predespacho": 5, "descripcion": "ENGRAPADOR VINIFAN", "linea": "0111"},
+    "016756": {"stock": 45, "predespacho": 10, "descripcion": "FUTBOL CUERO", "linea": "0101"},
+    "76152": {"stock": 200, "predespacho": 30, "descripcion": "RESALTADOR METALICO", "linea": "0176"},
+    "11031": {"stock": 3, "predespacho": 1, "descripcion": "ENGRAPADOR MINI", "linea": "0111"},
+    "016757": {"stock": 12, "predespacho": 8, "descripcion": "PELOTA BASQUET", "linea": "0101"}
+  },
+  "121": {
+    "76153": {"stock": 25, "predespacho": 0, "descripcion": "RESALTADOR NEON", "linea": "0176"},
+    "11032": {"stock": 60, "predespacho": 5, "descripcion": "ENGRAPADOR ELECTRICO", "linea": "0111"},
+    "016758": {"stock": 8, "predespacho": 2, "descripcion": "PELOTA VOLEIBOL", "linea": "0101"}
+  }
+}

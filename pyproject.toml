@@ -1,0 +1,17 @@
+[project]
+name = "g360-stock-monitor"
+version = "1.0.0"
+description = "Stock Monitor CIPSA - Monitoreo de stock por almacenes y lineas"
+requires-python = ">=3.11"
+dependencies = [
+    "flet>=0.23.0",
+    "requests>=2.31.0",
+    "xlrd>=2.0.0",
+    "openpyxl>=3.0.0",
+    "beautifulsoup4>=4.0.0",
+]
+
+[project.optional-dependencies]
+build = [
+    "pyinstaller>=6.0.0",
+]
