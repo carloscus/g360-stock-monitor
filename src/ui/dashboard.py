@@ -17,6 +17,11 @@ from src.core.processor import (
 from src.ui.warehouse_card import WarehouseCard
 from src.ui.linea_section import LineaSection
 
+try:
+    from g360_flet.g360_signature import G360Signature
+except ImportError:
+    G360Signature = None
+
 
 class Dashboard:
     def __init__(self, page: ft.Page, theme_mode: str = "dark"):
@@ -171,7 +176,8 @@ class Dashboard:
                         ),
                         self._theme_button,
                         ft.Container(expand=True),
-                        ft.Text("Powered by G360", size=10, color=rgba(ACCENT, 0.4), weight=ft.FontWeight.W_600),
+                        G360Signature(mode="powered", version="2.0") if G360Signature
+                        else ft.Text("Powered by G360", size=10, color=rgba(ACCENT, 0.4), weight=ft.FontWeight.W_600),
                     ], spacing=0),
                     padding=ft.Padding(left=4, right=8, top=6, bottom=6),
                 ),
