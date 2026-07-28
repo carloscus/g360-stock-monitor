@@ -1,29 +1,68 @@
-# g360-stock-monitor
+# G360 Stock Monitor
 
-Monitoreo de stock en tiempo real desde S1 (ERP CIPSA) con visualización por almacenes, líneas de producto y categorías. Incluye detección de transferencias sugeridas entre almacenes con alertas por desbalance y stock crítico.
+> Monitoreo de stock en tiempo real desde S1 (ERP CIPSA) con visualizacion por almacenes, lineas de producto y categorias. Incluye deteccion de transferencias sugeridas entre almacenes con alertas por desbalance y stock critico.
 
-> Powered by G360
+[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/carloscus/g360-erp-stock-monitor)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue)](https://python.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
----
-
-## Índice
-
-1. [Arquitectura](#1-arquitectura)
-2. [Data Flow](#2-data-flow)
-3. [Estructura del Proyecto](#3-estructura-del-proyecto)
-4. [Features](#4-features)
-5. [Health Filter (Umbrales por Cajas)](#5-health-filter-umbrales-por-cajas)
-6. [Almacenes: Roles y Display](#6-almacenes-roles-y-display)
-7. [Transferencias Sugeridas](#7-transferencias-sugeridas)
-8. [Portable](#8-portable)
-9. [Configuración](#9-configuración)
-10. [Dependencias](#10-dependencias)
-11. [Ejecución](#11-ejecución)
-12. [Decision Log](#12-decision-log)
+```mermaid
+flowchart TD
+    A[S1 ERP CIPSA] -->|HTTP GET| B[Descarga Excel]
+    B --> C[xls_fallback 5 engines]
+    C --> D[processor.py KPIs]
+    D --> E[dashboard.py Flet]
+    E --> F[Warehouse Cards]
+    E --> G[Categorias]
+    E --> H[Transferencias]
+```
 
 ---
 
-## 1. Arquitectura
+## Tabla de Contenidos
+
+- [Descripcion](#descripcion)
+- [Caracteristicas](#caracteristicas)
+- [Arquitectura](#arquitectura)
+- [Estructura](#estructura)
+- [Configuracion](#configuracion)
+- [Dependencias](#dependencias)
+- [Instalacion](#instalacion)
+- [Uso](#uso)
+- [Portable](#portable)
+- [Decision Log](#decision-log)
+- [Contribucion](#contribucion)
+- [Licencia](#licencia)
+- [Familia G360](#familia-g360)
+
+---
+
+## Descripcion
+
+Aplicacion de escritorio que monitorea stock en tiempo real desde el ERP de CIPSA (S1). Descarga Excel desde S1, procesa datos por almacenes, lineas y categorias, y presenta un dashboard interactivo con KPIs, alertas y transferencias sugeridas.
+
+**Tipo**: Desktop App (Portable)
+**Framework**: Flet (Flutter-based Python)
+**Plataforma**: Windows 10/11
+
+---
+
+## Caracteristicas
+
+- **Dashboard general**: KPIs, warehouse cards, categorias, sidebar con search
+- **6 KPIs clickables**: Almacenes, SKUs, Disponible, Predespacho, Alertas, Criticos
+- **Health filter**: Filtro por salud (Critico/Alerta/OK) usando umbrales por cajas
+- **Transferencias sugeridas**: Deteccion automatica de desbalance entre VES y secundarios
+- **Warehouse cards**: 3 modos de display (DESAGREGADO, CONSOLIDADO, PCT)
+- **Categorias**: VINIBALL, VINIFAN, REPRESENTADAS con sus lineas
+- **Sidebar**: Search, chips de almacen, SKUs sin categoria, settings
+- **Snapshot diff**: Tendencia (up/down) vs snapshot anterior
+- **5 motores de lectura Excel**: openpyxl, xlrd, csv, html, xml
+- **Version portable**: Carpeta autonoma con launcher auto-instalable
+
+---
+
+## Arquitectura
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -37,7 +76,7 @@ Monitoreo de stock en tiempo real desde S1 (ERP CIPSA) con visualización por al
 │  │  src/core/                                             │  │
 │  │    s1_downloader.py → descarga Excel desde S1          │  │
 │  │    xls_fallback.py   → parsea Excel (5 engines)        │  │
-│  │    processor.py      → KPIs, métricas, transferencias  │  │
+│  │    processor.py      → KPIs, metricas, transferencias  │  │
 │  │    constants.py      → URL, rutas                      │  │
 │  └────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────┘
@@ -48,108 +87,61 @@ Monitoreo de stock en tiempo real desde S1 (ERP CIPSA) con visualización por al
 | Capa | Archivo | Responsabilidad |
 |------|---------|-----------------|
 | **Entry** | `main.py` | Boot, sys.path, `ft.run(main)` |
-| **App** | `src/app.py` | Page setup, ciclo de vida, orquestación download → update |
+| **App** | `src/app.py` | Page setup, ciclo de vida, orquestacion download → update |
 | **Core** | `src/core/s1_downloader.py` | HTTP GET a S1, temp file, parse |
-| **Core** | `src/core/xls_fallback.py` | 5 motores de lectura Excel (openpyxl, xlrd, csv, html, xml) |
-| **Core** | `src/core/processor.py` | KPIs por almacén, líneas, categorías, transferencias |
+| **Core** | `src/core/xls_fallback.py` | 5 motores de lectura Excel |
+| **Core** | `src/core/processor.py` | KPIs por almacen, lineas, categorias, transferencias |
 | **UI** | `src/ui/dashboard.py` | Layout completo, sidebar, chips, KPIs, dialogs |
-| **UI** | `src/ui/warehouse_card.py` | Card por almacén con display condicional (DESAGREGADO/CONSOLIDADO/PCT) |
-| **UI** | `src/ui/linea_section.py` | Categorías → líneas → cards interactivas |
-| **Config** | `src/config/theme.py` | Paleta esmeralda `#10B981`, colores, utility rgba |
-| **Config** | `src/core/constants.py` | S1_URL, rutas assets |
+| **UI** | `src/ui/warehouse_card.py` | Card por almacen con display condicional |
+| **UI** | `src/ui/linea_section.py` | Categorias → lineas → cards interactivas |
+| **Config** | `src/config/theme.py` | Paleta esmeralda, colores, utility rgba |
 
-### Patrones
-
-- **Callback-based**: `Dashboard.set_on_refresh(cb)`, `on_linea_click`, `on_click`
-- **Snapshot diff**: cada warehouse guarda su `disponible_total` previo en JSON → muestra tendencia (↑↓)
-- **Búsqueda lazy**: search filtra en `_apply_filters()` con iteración sobre `_raw_data`
-- **Chips toggle**: `_selected_alms` set, toggle visual sin recrear (muta bgcolor interno)
-
----
-
-## 2. Data Flow
+### Data Flow
 
 ```
 S1 (HTTP) → Excel (19 cols) → xls_fallback (5 engines) → dict[str, dict[str, dict]]
                                     ↓
                             processor.py
-                          ┌─ calcular_kpis_almacen(raw)
+                          ├─ calcular_kpis_almacen(raw)
                           ├─ obtener_metricas_lineas(kpis)
                           ├─ obtener_metricas_categorias(kpis)
                           ├─ contar_sin_linea(raw)
                           └─ sugerir_transferencias(raw, config, search)
                                     ↓
                              dashboard.py
-                          ┌─ _build_kpi_row() → 6 KPIs
+                          ├─ _build_kpi_row() → 6 KPIs
                           ├─ warehouse cards
                           ├─ linea_section
                           ├─ sidebar chips
                           └─ _transfer_section
 ```
 
-### Formato de datos crudos (`_raw_data`)
+### Patrones
 
-```python
-{
-  "VES": {
-    "016763": {
-      "stock": 160,
-      "predespacho": 20,
-      "disponible": 140,
-      "descripcion": "LAPICERO AZUL 0.5",
-      "sku_unit": "UND"
-    },
-    ...
-  },
-  "121": { ... },   # QC/Inspección
-  "129": { ... },   # Outlet
-  "40":  { ... },   # APT
-  "92":  { ... },   # Inspección externo
-  "106": { ... },   # Outlet externo
-  "118": { ... },   # Almacén 118
-  "122": { ... },   # Exportación
-}
-```
-
-### Catálogo (`catalogo_productos.json`)
-
-```json
-{
-  "productos": [
-    {
-      "sku": "016763",
-      "linea": "ESCRITURA",
-      "categoria": "VINIBALL",
-      "un_bx": 12,
-      ...
-    }
-  ]
-}
-```
-
-1088 productos reales. ~3062 SKUs en S1 → ~1277 caen en "SIN LINEA" / "OTROS".
+- **Callback-based**: `Dashboard.set_on_refresh(cb)`, `on_linea_click`, `on_click`
+- **Snapshot diff**: cada warehouse guarda su `disponible_total` previo en JSON → muestra tendencia
+- **Chips toggle**: `_selected_alms` set, toggle visual sin recrear
 
 ---
 
-## 3. Estructura del Proyecto
+## Estructura
 
 ```
-g360-stock-monitor/
+g360-erp-stock-monitor/
 ├── main.py                          # Entry point
 ├── pyproject.toml                   # Python project metadata
-├── requirements.txt                 # Pip deps (flet, requests, xlrd, openpyxl, bs4)
+├── requirements.txt                 # Pip deps
 ├── run.bat                          # Launcher con uv
-├── skill.json                       # Skill descriptor (cola: cipsa, portable: true)
+├── skill.json                       # Skill descriptor
 ├── assets/
 │   ├── data/
-│   │   ├── lineas.json              # Config almacenes + líneas + umbrales
+│   │   ├── lineas.json              # Config almacenes + lineas + umbrales
 │   │   ├── catalogo_productos.json  # 1088 productos de CIPSA
 │   │   ├── sample_data.json         # Fallback offline
-│   │   └── _snapshot_*.json         # Snapshots por almacén (autogenerado)
+│   │   └── _snapshot_*.json         # Snapshots por almacen (autogenerado)
 │   └── images/
 │       ├── Logo_cipsa_solid.svg     # Logo en sidebar
-│       ├── Logo_cipsa_borde.svg     # Logo alternativo
-│       └── cipsa.ico                # Icono de la aplicación (CIPSA)
+│       └── cipsa.ico                # Icono de la aplicacion
 ├── src/
 │   ├── app.py                       # StockMonitorApp (orquestador)
 │   ├── config/
@@ -158,229 +150,17 @@ g360-stock-monitor/
 │   │   ├── constants.py             # S1_URL, rutas absolutas
 │   │   ├── s1_downloader.py         # Download + parse S1 Excel
 │   │   ├── xls_fallback.py          # 5 motores de lectura Excel
-│   │   └── processor.py             # KPI engine, métricas, transferencias
+│   │   └── processor.py             # KPI engine, metricas, transferencias
 │   └── ui/
 │       ├── dashboard.py             # Layout + interactividad
-│       ├── warehouse_card.py        # Card de almacén (3 tipos display)
-│       └── linea_section.py         # Categorías → líneas
-├── g360-stock-monitor-portable/     # Distribución portable (ver sección 8)
-│   ├── run.bat                      # Launcher 5 pasos (uv → Python → deps → update + shortcut → app)
-│   ├── build-portable.bat           # PyInstaller EXE
-│   ├── create_shortcut.vbs          # Acceso directo (WindowStyle=7, icono cipsa.ico)
-│   ├── sync_portable.py             # Sincronización desde raíz
-│   ├── .python-version
-│   ├── main.py, src/, assets/       # Sincronizado desde raíz
-│   └── ...
-└── .venv/                           # Virtual environment (dev)
+│       ├── warehouse_card.py        # Card de almacen (3 tipos display)
+│       └── linea_section.py         # Categorias → lineas
+└── g360-erp-stock-monitor-portable/ # Distribucion portable
 ```
 
 ---
 
-## 4. Features
-
-### 4.1 Dashboard General
-
-| Elemento | Descripción | Interacción |
-|----------|-------------|-------------|
-| **Header** | Logo CIPSA + título + loading + botón Actualizar | — |
-| **KPIs** | Almacenes / SKUs / Disponible / Predespacho / Alertas / Críticos | Click → diálogo detalle |
-| **Transferencias** | SKUs críticos o desbalanceados entre VES y secundarios | Click por SKU no, solo tabla |
-| **Warehouse Cards** | Una card por almacén activo (métricas + alertas + tendencia) | Click → tabla SKU-level |
-| **Categorías** | VINIBALL, VINIFAN, REPRESENTADAS con sus líneas | Click en línea → SKUs detalle |
-| **Sidebar** | Search + chips almacén + SKUs sin cat + settings ⚙️ | Toggle chips filtra data |
-| **Health Pills** | Filtro por salud (Crítico/Alerta/OK) usando umbrales por cajas | Píldoras en cabecera |
-
-### 4.2 KPIs Clickables (6 diálogos)
-
-| KPI | Color | Contenido del Diálogo |
-|-----|-------|----------------------|
-| **Almacenes** | `#10B981` | Tabla: código, stock, predespacho, disponible, alertas/críticos |
-| **SKUs** | `#3b82f6` | Desglose por categoría (nombre, SKUs, disponible) |
-| **Disponible** | `#34d399` | Top 15 líneas por disponible |
-| **Predespacho** | `#f59e0b` | Top 15 líneas por predespacho con ratio % |
-| **Alertas** | `#f59e0b` | SKUs en alerta (1 a 5 cajas) con paginación y ordenamiento |
-| **Críticos** | `#ef4444` | SKUs críticos (< 1 caja) con paginación y ordenamiento |
-
-### 4.3 Warehouse Cards
-
-Tres modos de display según `tipo_reporte`:
-
-| Tipo | Almacenes | Muestra |
-|------|-----------|---------|
-| **DESAGREGADO** | VES, 129, 40 | Stock total / Predespacho / Barra ratio P/(P+D) / Disponible |
-| **CONSOLIDADO** | 121 | Total stock / Disponible |
-| **PCT** | 92, 106, 118, 122 | "Info stock: X de Y" — informativo sin detalle |
-
-Cada card muestra:
-- Código + badge de rol (PRINCIPAL / SECUNDARIO)
-- Nombre real del almacén
-- **Tendencia** (↑↓→) vs snapshot anterior (diferencia de disponible)
-- Contadores de críticos (🔴) y alertas (🟡) — solo si `participa_control: true`
-
-### 4.4 Líneas por Categoría
-
-Solo 3 categorías principales:
-
-```
-VINIBALL ── Pelotas
-         └─ Escritura
-         └─ Metálica
-         └─ Archivo
-         └─ ...
-
-VINIFAN ── Dibujo
-        └─ Pintura
-        └─ Pegamentos
-        └─ ...
-
-REPRESENTADAS ── Mascotas
-              └─ Representadas
-              └─ ...
-```
-
-Cada línea muestra: nombre, stock, disponible, SKUs, barra stock mínimo.
-
-### 4.5 Sidebar
-
-- Search field (busca en todos los almacenes, incluso EXTERNO)
-- Chips de almacén: 🟢 = PRINCIPAL, 🔵 = SECUNDARIO, ⚪ = EXTERNO
-- Chips EXTERNO desactivados por defecto al cargar
-- Link "SKUs sin categoría (N)" → diálogo con detalle
-- Settings ⚙️ → modal de prioridades de almacenes
-- "Powered by G360" signature
-
----
-
-## 5. Health Filter (Umbrales por Cajas)
-
-El sistema clasifica cada SKU según su **disponible en relación a `un_bx`** (unidades por caja del catálogo):
-
-| Estado | Condición | Color | Emoji |
-|--------|-----------|-------|-------|
-| **Crítico** | `disp < un_bx` (menos de 1 caja) | Rojo `#ef4444` | 🔴 |
-| **Alerta** | `un_bx <= disp <= un_bx * 5` (1 a 5 cajas) | Amarillo `#f59e0b` | 🟡 |
-| **OK** | `disp > un_bx * 5` (más de 5 cajas) | Verde `#34d399` | 🟢 |
-
-### Píldoras de Filtro
-
-Tres píldoras en la cabecera del dashboard: **Crítico** / **Alerta** / **OK** + **Todo** (por defecto).
-
-- Al seleccionar una píldora, el dashboard completo se filtra: KPIs, warehouse cards, líneas y categorías solo muestran datos de SKUs en ese estado.
-- Los diálogos de KPIs (Críticos / Alertas) **siempre muestran todos los items** sin importar el filtro activo.
-- El filtro opera a nivel SKU usando el umbral por cajas (`un_bx`) del catálogo.
-
-### Vista Principal
-
-| Vista | Respeta Filtro |
-|-------|---------------|
-| KPIs (Almacenes, SKUs, Disponible, Predespacho) | ✅ |
-| Warehouse Cards | ✅ |
-| Líneas y Categorías | ✅ |
-| Diálogo Críticos | ❌ (muestra todos) |
-| Diálogo Alertas | ❌ (muestra todos) |
-
----
-
-## 6. Almacenes: Roles y Display
-
-### Config actual (`lineas.json`)
-
-| Código | Nombre | Prioridad | Tipo Reporte | Rol | Control |
-|--------|--------|-----------|--------------|-----|---------|
-| **VES** | VES | 1 | DESAGREGADO | **PRINCIPAL** | ✅ |
-| **121** | CLVES_INSPECCION | 2 | CONSOLIDADO | SECUNDARIO | ✅ |
-| **129** | CLVES_OUTLET | 3 | DESAGREGADO | SECUNDARIO | ✅ |
-| **40** | APT | 4 | DESAGREGADO | SECUNDARIO | ✅ |
-| **118** | ALMACEN_118 | 5 | PCT | EXTERNO | ❌ |
-| **92** | INSPECCION | 6 | PCT | EXTERNO | ❌ |
-| **106** | OUTLET | 7 | PCT | EXTERNO | ❌ |
-| **122** | EXPORTACION | 8 | PCT | EXTERNO | ❌ |
-
-### Reglas de display
-
-- **DESAGREGADO**: stock, predespacho, barra ratio, disponible — completo
-- **CONSOLIDADO**: solo stock total y disponible — útil para QC (121)
-- **PCT**: solo texto informativo — almacenes externos sin control operativo
-- `participa_control: false` → oculta contadores de alertas/críticos en la card
-
----
-
-## 7. Transferencias Sugeridas
-
-### Modo Normal (sin búsqueda)
-
-Para cada SKU en VES (PRINCIPAL), evalúa secundarios ordenados por importancia:
-
-| Tipo | Condición | Icono | Acción |
-|------|-----------|-------|--------|
-| **Crítico** | VES disponible ≤ 5 **Y** secundario tiene disponible > 0 | ⚠️ | `Liberar QC en 121` o `Trasladar desde {cod}` |
-| **Desbalance** | Secundario stock ≥ 3× VES stock **Y** VES disp > 5 | ⚖️ | `Liberar QC en 121` o `Trasladar desde {cod}` |
-
-Solo se muestra **el primer secundario** que cumple alguna condición por SKU.
-
-### Modo Búsqueda
-
-Al escribir en search, muestra el SKU en **todos los almacenes ordenados por importancia**:
-
-```
-SKU | Producto | Almacén | Rol | Stock | Disponible
-```
-
----
-
-## 8. Portable
-
-El proyecto incluye `g360-stock-monitor-portable/` para distribución a PCs sin Python.
-
-### Contenido
-
-| Archivo | Propósito |
-|---------|-----------|
-| `run.bat` | Launcher 5 pasos: 1) instala uv si falta, 2) instala Python 3.11 si falta, 3) crea .venv + sincroniza deps, 4) verifica Windows Update + crea acceso directo (minimizado), 5) inicia la app |
-| `build-portable.bat` | Genera .exe standalone con PyInstaller (icono cipsa.ico) |
-| `create_shortcut.vbs` | Crea acceso directo en el escritorio (ventana minimizada, icono CIPSA) |
-| `.python-version` | Versión de Python requerida |
-| `requirements.txt` | Dependencias del proyecto |
-| `sync_portable.py` | Script para sincronizar src/ y assets/ desde el proyecto raíz |
-
-### Sincronización
-
-```bash
-# Desde la raíz del proyecto
-python sync_portable.py
-```
-
-### Ejecución en PC destino
-
-```bash
-# Opción 1: Con run.bat (Windows, recomendado)
-g360-stock-monitor-portable\run.bat
-
-# Opción 2: Build EXE
-g360-stock-monitor-portable\build-portable.bat
-```
-
-### Launcher `run.bat` (5 pasos)
-
-| Paso | Acción | Auto-instala si falta |
-|------|--------|-----------------------|
-| 1/5 | **uv** | `powershell irm ... \| iex` |
-| 2/5 | **Python 3.11** | `uv python install 3.11` |
-| 3/5 | **.venv + dependencias** | `uv venv + uv sync` |
-| 4/5 | **Windows Update + acceso directo** | Verifica updates pendientes (COM); crea .lnk en escritorio |
-| 5/5 | **Iniciar app** | Ejecuta `main.py` con captura de errores |
-
-Cada error muestra un popup (`msg *`) incluso con la ventana minimizada. Log detallado en `run_log.txt`.
-
-### Requisitos en PC destino
-
-- **Windows 10/11 x64**
-- No requiere Python, uv, ni VC++ Redist pre-instalados
-- Si falta VC++ Redist, la app falla con mensaje claro y se puede instalar manualmente
-
----
-
-## 9. Configuración
+## Configuracion
 
 ### `lineas.json`
 
@@ -400,81 +180,153 @@ Cada error muestra un popup (`msg *`) incluso con la ventana minimizada. Log det
     "critico_stock_unidades": 5,
     "porcentaje_alerta": 20,
     "dias_tendencia": 7
-  },
-  "lineas": [
-    {
-      "codigo": "PELOTAS",
-      "nombre": "Pelotas",
-      "grupo": "DEPORTES",
-      "stock_minimo": 300
-    }
-  ]
+  }
 }
 ```
 
-### `constants.py`
+### Health Filter (Umbrales por Cajas)
 
-```python
-S1_URL = "http://appweb.cipsa.com.pe:8054/.../DownloadFiles?value=..."
-```
+| Estado | Condicion | Color |
+|--------|-----------|-------|
+| **Critico** | `disp < un_bx` (menos de 1 caja) | Rojo `#ef4444` |
+| **Alerta** | `un_bx <= disp <= un_bx * 5` (1 a 5 cajas) | Amarillo `#f59e0b` |
+| **OK** | `disp > un_bx * 5` (mas de 5 cajas) | Verde `#34d399` |
+
+### Almacenes: Roles y Display
+
+| Codigo | Nombre | Tipo Reporte | Rol | Control |
+|--------|--------|--------------|-----|---------|
+| **VES** | VES | DESAGREGADO | **PRINCIPAL** | Si |
+| **121** | CLVES_INSPECCION | CONSOLIDADO | SECUNDARIO | Si |
+| **129** | CLVES_OUTLET | DESAGREGADO | SECUNDARIO | Si |
+| **40** | APT | DESAGREGADO | SECUNDARIO | Si |
+| **118** | ALMACEN_118 | PCT | EXTERNO | No |
+| **92** | INSPECCION | PCT | EXTERNO | No |
+| **106** | OUTLET | PCT | EXTERNO | No |
+| **122** | EXPORTACION | PCT | EXTERNO | No |
+
+### Transferencias Sugeridas
+
+Para cada SKU en VES (PRINCIPAL), evalua secundarios ordenados por importancia:
+
+| Tipo | Condicion | Icono |
+|------|-----------|-------|
+| **Critico** | VES disponible <= 5 y secundario tiene disponible > 0 | Warning |
+| **Desbalance** | Secundario stock >= 3x VES stock y VES disp > 5 | Balance |
 
 ---
 
-## 10. Dependencias
+## Dependencias
 
-| Paquete | Versión | Uso |
-|---------|---------|-----|
-| flet | ≥0.23.0 (real: 0.85.2) | UI framework (desktop) |
-| requests | ≥2.31.0 | HTTP download from S1 |
-| xlrd | ≥2.0.0 | Leer .xls (engine #2) |
-| openpyxl | ≥3.0.0 | Leer .xlsx (engine #1) + exportación |
-| beautifulsoup4 | ≥4.0.0 | Leer HTML tables (engine #4) |
+| Paquete | Uso |
+|---------|-----|
+| flet | UI framework (desktop) |
+| requests | HTTP download from S1 |
+| xlrd | Leer .xls |
+| openpyxl | Leer .xlsx + exportacion |
+| beautifulsoup4 | Leer HTML tables |
 
 ---
 
-## 11. Ejecución
+## Instalacion
 
-### Desarrollo
+### Requisitos
+
+- Windows 10/11
+- Conexion a internet (solo primera ejecucion)
+
+### Rapido
 
 ```bash
-cd g360-stock-monitor
+git clone https://github.com/carloscus/g360-erp-stock-monitor.git
+cd g360-erp-stock-monitor
+run.bat
+```
+
+### Manual
+
+```bash
 uv venv .venv --python 3.11
 uv sync
 .venv\Scripts\python main.py
 ```
 
-### Launcher (`run.bat`)
+---
 
-- Auto-crea .venv con `uv`
-- Auto-sync dependencias
-- Ejecuta `main.py`
-- Log en `run_log.txt`
+## Uso
 
-### Portable
+1. Ejecutar `run.bat` (auto-instala todo)
+2. La app descarga datos desde S1 automaticamente
+3. Explorar dashboard: KPIs, warehouse cards, categorias
+4. Usar sidebar para filtrar por almacen o buscar SKU
+5. Revisar transferencias sugeridas
+
+---
+
+## Portable
+
+El proyecto incluye `g360-erp-stock-monitor-portable/` para distribucion a PCs sin Python.
+
+| Archivo | Proposito |
+|---------|-----------|
+| `run.bat` | Launcher 5 pasos: uv → Python → deps → update → app |
+| `build-portable.bat` | Genera .exe standalone con PyInstaller |
+| `create_shortcut.vbs` | Acceso directo en escritorio |
+| `sync_portable.py` | Sincroniza src/ y assets/ desde el proyecto raiz |
 
 ```bash
-# Desde el directorio portable
-cd g360-stock-monitor-portable
-run.bat
+# Sincronizar cambios
+python sync_portable.py
+
+# Ejecutar en PC destino
+g360-erp-stock-monitor-portable\run.bat
 ```
 
 ---
 
-## 12. Decision Log
+## Decision Log
 
-| Fecha | Decisión | Alternativa | Razón |
-|-------|----------|-------------|-------|
-| May 2026 | `disponible` desde col19 | Calcular col14-col17 | VBA original usa col19 como fuente de confianza |
-| May 2026 | Categorías filtradas (3) | Mostrar OTROS como categoría | OTROS sin línea no aporta valor; se cuenta aparte |
-| May 2026 | `GestureDetector.on_tap` | `Container.on_click` | Flet 0.85 no propaga clicks a hijos |
-| May 2026 | `page.show_dialog(dlg)` | `page.dialog = dlg; dlg.open = True` | API deprecada en Flet 0.85 |
-| May 2026 | EXTERNO desactivados por defecto | Todos activos | Usuario no necesita ver almacenes externos a diario |
-| May 2026 | Health filter por cajas (`un_bx`) | Umbral fijo en unidades | `un_bx` varía por producto; umbral fijo es impreciso |
-| May 2026 | Alerta = 1-5 cajas | ≤ 10 unidades | Unificación con criterio VBA por cajas |
-| May 2026 | KPI dialogs ignoran filtro de salud | Respetan filtro | Usuario necesita ver totales reales independientemente del filtro |
-| May 2026 | Portable dir con sync script | Manual copy | Sincronización reproducible vía `sync_portable.py` |
-| May 2026 | Launcher 5 pasos auto-instala uv + Python + deps | Requerir instalación manual | Experiencia zero-setup en PC limpia |
-| May 2026 | Eliminado chequeo VC++ Redist del launcher | Descarga automática de 25MB | `reg query` y `if exist` causaban cuelgues; la app muestra error claro si falta |
-| May 2026 | Windows Update check en paso 4 | Omitir verificación | PowerShell COM `Microsoft.Update.Session` — rápido (~2s), informativo, no bloquea |
-| May 2026 | Shortcut con `WindowStyle = 7` + icono `cipsa.ico` | Ventana normal + icono G360 | La app se lanza minimizada con icono de CIPSA |
-| May 2026 | `msg *` popups en todos los errores del launcher | Solo `echo + pause` | Visible incluso con ventana CMD minimizada |
+| Fecha | Decision | Razon |
+|-------|----------|-------|
+| May 2026 | `disponible` desde col19 | VBA original usa col19 como fuente de confianza |
+| May 2026 | Categorias filtradas (3) | OTROS sin linea no aporta valor |
+| May 2026 | Health filter por cajas (`un_bx`) | `un_bx` varia por producto; umbral fijo es impreciso |
+| May 2026 | KPI dialogs ignoran filtro de salud | Usuario necesita ver totales reales |
+| May 2026 | Launcher 5 pasos auto-instala | Experiencia zero-setup en PC limpia |
+
+---
+
+## Contribucion
+
+1. Fork el repositorio
+2. Crea una rama (`git checkout -b feature/nueva-funcion`)
+3. Commit cambios (`git commit -m 'Agregar funcion'`)
+4. Push a la rama (`git push origin feature/nueva-funcion`)
+5. Abre un Pull Request
+
+---
+
+## Licencia
+
+MIT License - ver [LICENSE](LICENSE) para mas detalles.
+
+---
+
+## Familia G360
+
+Este proyecto forma parte de la familia de microherramientas **G360** para apoyo CRM y gestion de datos en escritorio, enfocadas en areas como ventas, finanzas y logistica.
+
+### Herramientas Relacionadas
+
+- **[g360-cli](https://github.com/carloscus/g360-cli)**: Bootstrap de proyectos G360
+- **[g360-signature](https://github.com/carloscus/g360-signature)**: Web component de branding
+- **[g360-order-xlsx](https://github.com/carloscus/g360-order-xlsx)**: Procesador de cotizaciones Excel
+- **[g360-signature-creator](https://github.com/carloscus/g360-signature-creator)**: Generador de firmas corporativas
+
+---
+
+**Marca**: G360
+**Isotipo**: 3 puntos verticales paralelos (gris-verde-gris) + chevron `>`
+**Autor**: Carlos Cusi
+**Desarrollo**: Con asistencia de herramientas de codigo IA (Vibe Code)
+**Powered by**: [g360-signature](https://github.com/carloscus/g360-signature)
