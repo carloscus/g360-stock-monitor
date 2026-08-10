@@ -298,6 +298,22 @@ run.bat
 launch.vbs
 ```
 
+### Comandos G360-CLI
+
+```bash
+# Ver estructura del proyecto
+g360 present
+
+# Auditar compliance con estándares G360
+g360 audit
+
+# Traer assets de marca actualizados
+g360 bring brand
+
+# Generar/actualizar documentación automáticamente
+g360 docs --level readme
+```
+
 ---
 
 ## Uso
@@ -409,5 +425,11 @@ Este proyecto forma parte de la familia de microherramientas **G360** para apoyo
 **Signature**: powered by G360 · **Powered by**: [g360-signature](https://github.com/carloscus/g360-signature)
 **Autor**: Carlos Cusi
 **Desarrollo**: Con asistencia de herramientas de código IA (Vibe Code)
+
+## Footer Signature
+
+```html
+<g360-signature mode="powered"></g360-signature>
+```
 
 > Identidad generada desde el Brand System de `g360-cli` (`brand.json` v2.0.0).
