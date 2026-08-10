@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import flet as ft
-from src.config.theme import rgba, ACCENT
+from src.config.theme import rgba
 
 
 class WarehouseCard:
@@ -33,7 +33,7 @@ class WarehouseCard:
         if rol == "PRINCIPAL":
             rol_badge = ft.Container(
                 content=ft.Text("PRINCIPAL", size=10, color="white", weight=ft.FontWeight.W_700),
-                bgcolor=ACCENT, border_radius=5, padding=ft.Padding(left=8, right=8, top=3, bottom=3),
+                bgcolor=self.c["accent"], border_radius=5, padding=ft.Padding(left=8, right=8, top=3, bottom=3),
             )
         elif rol == "SECUNDARIO":
             rol_badge = ft.Container(
@@ -75,7 +75,7 @@ class WarehouseCard:
                         ft.Text(cod, size=18, weight=ft.FontWeight.W_800, color=self.c["text_primary"]),
                         rol_badge if rol_badge else ft.Container(),
                     ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    ft.Text(nombre_real, size=13, color=self.c["text_muted"], max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                    ft.Text(nombre_real, size=13, color=self.c["text_muted"], max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, tooltip=nombre_real),
                 ], spacing=3, expand=2),
                 
                 # 2. Métricas (Centro)
@@ -112,7 +112,7 @@ class WarehouseCard:
         return ft.Column([
             ft.Text("Ratio", size=9, color=self.c["text_muted"]),
             ft.Container(
-                content=ft.ProgressBar(value=value/100, color=ACCENT, bgcolor=rgba(ACCENT, 0.1), height=4),
+                content=ft.ProgressBar(value=value/100, color=self.c["accent"], bgcolor=rgba(self.c["accent"], 0.12), height=4),
                 width=60, border_radius=2
             ),
         ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER)

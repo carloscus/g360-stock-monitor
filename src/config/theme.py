@@ -3,53 +3,47 @@ from pathlib import Path
 
 ACCENT = "#10B981"
 ACCENT_DARK = "#047857"
-EMERALD_LIGHT = "#34d399"
-EMERALD_DARK = "#059669"
-
-SUCCESS = "#34d399"
-WARNING = "#f59e0b"
-ERROR = "#ef4444"
-INFO = "#3b82f6"
-VIOLET = "#8b5cf6"
-PINK = "#ec4899"
-CYAN = "#06b6d4"
 
 DARK_COLORS = {
     "accent": ACCENT,
     "accent_dark": ACCENT_DARK,
-    "success": SUCCESS,
-    "warning": WARNING,
-    "error": ERROR,
-    "info": INFO,
-    "violet": VIOLET,
-    "pink": PINK,
-    "cyan": CYAN,
-    "surface": "#1a2333",
-    "surface_variant": "#243044",
-    "background": "#0b1220",
-    "border": "#ffffff12",
-    "text_muted": "#94a3b8",
-    "text_primary": "#f0f4f8",
-    "text_secondary": "#cbd5e1",
+    "success": "#34D399",
+    "warning": "#F59E0B",
+    "error": "#EF4444",
+    "info": "#3B82F6",
+    "violet": "#8B5CF6",
+    "pink": "#EC4899",
+    "cyan": "#06B6D4",
+    "orange": "#F97316",
+    "surface": "#141D33",
+    "surface_variant": "#1B2740",
+    "surface_sunken": "#0E1627",
+    "background": "#0A0F1E",
+    "border": "#FFFFFF17",
+    "text_muted": "#8FA0BA",
+    "text_primary": "#F1F5FB",
+    "text_secondary": "#C9D4E6",
 }
 
 LIGHT_COLORS = {
-    "accent": ACCENT,
-    "accent_dark": ACCENT_DARK,
-    "success": SUCCESS,
-    "warning": WARNING,
-    "error": ERROR,
-    "info": INFO,
-    "violet": VIOLET,
-    "pink": PINK,
-    "cyan": CYAN,
-    "surface": "#ffffff",           # Fondo de tarjetas/componentes
-    "surface_variant": "#f8fafc",   # Variación ligera para hover o secciones
-    "background": "#f1f5f9",        # Fondo principal de la página
-    "border": "#e2e8f0",            # Bordes más visibles en tema claro
-    "text_muted": "#64748b",        # Texto gris para detalles
-    "text_primary": "#0f172a",      # Texto casi negro para máxima legibilidad
-    "text_secondary": "#334155",    # Texto gris oscuro
+    "accent": "#047857",
+    "accent_dark": "#065F46",
+    "success": "#15803D",
+    "warning": "#B45309",
+    "error": "#DC2626",
+    "info": "#2563EB",
+    "violet": "#7C3AED",
+    "pink": "#DB2777",
+    "cyan": "#0891B2",
+    "orange": "#EA580C",
+    "surface": "#FFFFFF",
+    "surface_variant": "#F7F9FC",
+    "surface_sunken": "#EEF1F6",
+    "background": "#F3F5F9",
+    "border": "#E3E8F0",
+    "text_muted": "#64748B",
+    "text_primary": "#0F172A",
+    "text_secondary": "#334155",
 }
 
 
@@ -92,7 +86,4 @@ def save_theme_preference(mode: str):
         pass
 
 
-WINDOW_WIDTH = 1200
-WINDOW_HEIGHT = 800
-WINDOW_MIN_WIDTH = 900
-WINDOW_MIN_HEIGHT = 600
+

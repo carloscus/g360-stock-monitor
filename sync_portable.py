@@ -45,8 +45,8 @@ def main():
 
     files_to_sync = [
         "main.py", "pyproject.toml", "requirements.txt",
-        "skill.json", "run.bat", "create_shortcut.vbs",
-        "build-portable.bat", ".python-version", "sync_portable.py",
+        "run.bat", "launch.vbs",
+        "README.md",
     ]
     for filename in files_to_sync:
         src_file = os.path.join(base_dir, filename)
@@ -54,6 +54,8 @@ def main():
         if os.path.exists(src_file):
             shutil.copy2(src_file, dst_file)
             print(f"Copiado: {filename} -> portable/{filename}")
+        else:
+            print(f"Omitido (no existe en origen): {filename}")
 
     sync_dir(os.path.join(base_dir, "src"), os.path.join(portable_dir, "src"))
     sync_dir(os.path.join(base_dir, "assets"), os.path.join(portable_dir, "assets"))

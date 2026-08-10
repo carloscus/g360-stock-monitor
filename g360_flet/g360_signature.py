@@ -108,7 +108,7 @@ class G360Signature(ft.Row):
             ">",
             size=14,
             color=green,
-            font_family="Consolas",
+            font_family="JetBrains Mono",
             selectable=False,
         )
 
@@ -122,22 +122,22 @@ class G360Signature(ft.Row):
         if self.mode == "own":
             text_controls = [
                 ft.Text("G360", size=12, color=green, weight=ft.FontWeight.BOLD,
-                        font_family="Consolas", selectable=False),
+                        font_family="JetBrains Mono", selectable=False),
                 ft.Text(" by ccusi", size=12, color=gray,
-                        font_family="Consolas", selectable=False),
+                        font_family="JetBrains Mono", selectable=False),
             ]
         else:
             text_controls = [
                 ft.Text("powered by ", size=12, color=gray,
-                        font_family="Consolas", selectable=False),
+                        font_family="JetBrains Mono", selectable=False),
                 ft.Text("G360", size=12, color=green, weight=ft.FontWeight.BOLD,
-                        font_family="Consolas", selectable=False),
+                        font_family="JetBrains Mono", selectable=False),
             ]
 
         if self.version:
             text_controls.append(
                 ft.Text(f" v{self.version}", size=12, color=gray, opacity=0.7,
-                        font_family="Consolas", selectable=False)
+                        font_family="JetBrains Mono", selectable=False)
             )
 
         text_row = ft.Row(

@@ -1,64 +1,96 @@
 # G360 Stock Monitor
 
-> Monitoreo de stock en tiempo real desde S1 (ERP CIPSA) con visualizacion por almacenes, lineas de producto y categorias. Incluye deteccion de transferencias sugeridas entre almacenes con alertas por desbalance y stock critico.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/images/Logo_cipsa_solid.svg">
+  <img alt="G360 Stock Monitor" height="64" src="assets/images/Logo_cipsa_solid.svg">
+</picture>
+
+> Monitoreo de stock en tiempo real desde S1 (ERP CIPSA) con visualización por almacenes, líneas de producto y categorías. Incluye detección de transferencias sugeridas entre almacenes con alertas por desbalance y stock crítico.
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/carloscus/g360-erp-stock-monitor)
 [![Python](https://img.shields.io/badge/Python-3.11+-blue)](https://python.org)
+[![Flet](https://img.shields.io/badge/Flet-0.28.3-green)](https://flet.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+## ¿Cómo está organizado el proyecto?
 
 ```mermaid
 flowchart TD
-    A[S1 ERP CIPSA] -->|HTTP GET| B[Descarga Excel]
-    B --> C[xls_fallback 5 engines]
-    C --> D[processor.py KPIs]
-    D --> E[dashboard.py Flet]
-    E --> F[Warehouse Cards]
-    E --> G[Categorias]
-    E --> H[Transferencias]
+    A["S1 ERP CIPSA"] -->|HTTP GET /stock| B["Descarga JSON"]
+    B --> C["s1_downloader<br/>parse + normalize"]
+    C --> D["processor.py<br/>KPIs, métricas, transferencias"]
+    D --> E["dashboard.py<br/>Flet 0.28.3"]
+    E --> F["Warehouse Cards"]
+    E --> G["Categorías / Líneas"]
+    E --> H["Transferencias Sugeridas"]
+    E --> I["Export Excel (.xlsx)"]
 ```
-
----
 
 ## Tabla de Contenidos
 
-- [Descripcion](#descripcion)
-- [Caracteristicas](#caracteristicas)
+- [Descripción](#descripción)
+- [Características](#características)
+- [Tecnologías](#tecnologías)
+- [Versión](#versión)
 - [Arquitectura](#arquitectura)
 - [Estructura](#estructura)
-- [Configuracion](#configuracion)
+- [Configuración](#configuración)
 - [Dependencias](#dependencias)
-- [Instalacion](#instalacion)
+- [Instalación](#instalación)
+- [Inicio Rápido](#inicio-rápido)
 - [Uso](#uso)
 - [Portable](#portable)
 - [Decision Log](#decision-log)
-- [Contribucion](#contribucion)
+- [Contribución](#contribución)
 - [Licencia](#licencia)
-- [Familia G360](#familia-g360)
+- [Ecosistema G360](#ecosistema-g360)
 
 ---
 
-## Descripcion
+## Descripción
 
-Aplicacion de escritorio que monitorea stock en tiempo real desde el ERP de CIPSA (S1). Descarga Excel desde S1, procesa datos por almacenes, lineas y categorias, y presenta un dashboard interactivo con KPIs, alertas y transferencias sugeridas.
+Aplicación de escritorio que monitorea stock en tiempo real desde el ERP de CIPSA (S1). Descarga datos JSON desde la API de S1, procesa datos por almacenes, líneas y categorías, y presenta un dashboard interactivo con KPIs, alertas y transferencias sugeridas.
 
 **Tipo**: Desktop App (Portable)
-**Framework**: Flet (Flutter-based Python)
+**Framework**: Flet 0.28.3 (Flutter-based Python)
 **Plataforma**: Windows 10/11
+**Skill**: `cipsa` (marca CIPSA + signature "powered by G360")
 
 ---
 
-## Caracteristicas
+## Características
 
-- **Dashboard general**: KPIs, warehouse cards, categorias, sidebar con search
-- **6 KPIs clickables**: Almacenes, SKUs, Disponible, Predespacho, Alertas, Criticos
-- **Health filter**: Filtro por salud (Critico/Alerta/OK) usando umbrales por cajas
-- **Transferencias sugeridas**: Deteccion automatica de desbalance entre VES y secundarios
+- **Dashboard general**: KPIs, warehouse cards, categorías, sidebar con search
+- **6 KPIs clickables**: Almacenes, SKUs, Disponible, Predespacho, Alertas, Críticos
+- **Tablas paginadas ordenables**: todos los modales con columnas tienen headers clicables con ciclo asc → desc → reset y encabezados alineados exactamente con los valores (mismo ancho)
+- **Indicador de sort**: dirección ▲/▼ y columna activa mostrada en el título del diálogo
+- **Health filter**: filtro por salud (Crítico/Alerta/OK) usando umbrales por cajas
+- **Transferencias sugeridas**: detección automática de desbalance entre VES y secundarios, con sort propio en la sección
+- **Exportación Excel**: diálogo de configuración (básico/completo, resumen consolidado, filtro por almacén) con diálogo nativo de guardado
 - **Warehouse cards**: 3 modos de display (DESAGREGADO, CONSOLIDADO, PCT)
-- **Categorias**: VINIBALL, VINIFAN, REPRESENTADAS con sus lineas
-- **Sidebar**: Search, chips de almacen, SKUs sin categoria, settings
-- **Snapshot diff**: Tendencia (up/down) vs snapshot anterior
+- **Categorías**: VINIBALL, VINIFAN, REPRESENTADAS con sus líneas
+- **Sidebar**: search, chips de almacén, SKUs sin categoría, settings
+- **Snapshot diff**: tendencia (up/down) vs snapshot anterior
 - **5 motores de lectura Excel**: openpyxl, xlrd, csv, html, xml
-- **Version portable**: Carpeta autonoma con launcher auto-instalable
+- **Versión portable**: carpeta autónoma con launcher auto-instalable
+
+---
+
+## Tecnologías
+
+| Tecnología | Uso |
+|------------|-----|
+| `flet[desktop]==0.28.3` | UI desktop (Flutter-based) |
+| `requests` | Descarga HTTP JSON desde API S1 |
+| `openpyxl` | Exportación de reportes Excel |
+| `uv` | Gestión de entornos virtuales + launcher auto-instalable |
+| `pyinstaller` | Build del .exe portable (distribución sin Python) |
+
+---
+
+## Versión
+
+**Current: v1.0.0** — ver `pyproject.toml`
 
 ---
 
@@ -66,7 +98,7 @@ Aplicacion de escritorio que monitorea stock en tiempo real desde el ERP de CIPS
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                    Flet Desktop App (0.85.2)                  │
+│                  Flet Desktop App (0.28.3)                    │
 │  ┌──────────┐  ┌──────────────────────────────────────────┐  │
 │  │ Sidebar  │  │              Main Content                 │  │
 │  │ (200px)  │  │  Header + KPIs + Transfers + Cards + Cat │  │
@@ -75,8 +107,8 @@ Aplicacion de escritorio que monitorea stock en tiempo real desde el ERP de CIPS
 │  ┌────────────────────────────────────────────────────────┐  │
 │  │  src/core/                                             │  │
 │  │    s1_downloader.py → descarga Excel desde S1          │  │
-│  │    xls_fallback.py   → parsea Excel (5 engines)        │  │
-│  │    processor.py      → KPIs, metricas, transferencias  │  │
+│  │    s1_downloader.py → parse JSON + normalize      │  │
+│  │    processor.py      → KPIs, métricas, transferencias  │  │
 │  │    constants.py      → URL, rutas                      │  │
 │  └────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────┘
@@ -86,34 +118,34 @@ Aplicacion de escritorio que monitorea stock en tiempo real desde el ERP de CIPS
 
 | Capa | Archivo | Responsabilidad |
 |------|---------|-----------------|
-| **Entry** | `main.py` | Boot, sys.path, `ft.run(main)` |
-| **App** | `src/app.py` | Page setup, ciclo de vida, orquestacion download → update |
-| **Core** | `src/core/s1_downloader.py` | HTTP GET a S1, temp file, parse |
-| **Core** | `src/core/xls_fallback.py` | 5 motores de lectura Excel |
-| **Core** | `src/core/processor.py` | KPIs por almacen, lineas, categorias, transferencias |
-| **UI** | `src/ui/dashboard.py` | Layout completo, sidebar, chips, KPIs, dialogs |
-| **UI** | `src/ui/warehouse_card.py` | Card por almacen con display condicional |
-| **UI** | `src/ui/linea_section.py` | Categorias → lineas → cards interactivas |
-| **Config** | `src/config/theme.py` | Paleta esmeralda, colores, utility rgba |
+| **Entry** | `main.py` | Boot, sys.path, `ft.app(main)` |
+| **App** | `src/app.py` | Page setup, ciclo de vida, orquestación download → update, registro de FilePickers en overlay |
+| **Core** | `src/core/s1_downloader.py` | HTTP GET a S1 API, parse JSON |
+| **Core** | `src/core/processor.py` | KPIs por almacén, líneas, categorías, transferencias, export a Excel |
+| **UI** | `src/ui/dashboard.py` | Layout completo, sidebar, chips, KPIs, diálogos, sort, export |
+| **UI** | `src/ui/warehouse_card.py` | Card por almacén con display condicional |
+| **UI** | `src/ui/linea_section.py` | Categorías → líneas |
+| **Config** | `src/config/theme.py` | Paleta esmeralda, colores, utility `rgba` |
 
 ### Data Flow
 
 ```
-S1 (HTTP) → Excel (19 cols) → xls_fallback (5 engines) → dict[str, dict[str, dict]]
-                                    ↓
-                            processor.py
-                          ├─ calcular_kpis_almacen(raw)
-                          ├─ obtener_metricas_lineas(kpis)
-                          ├─ obtener_metricas_categorias(kpis)
-                          ├─ contar_sin_linea(raw)
-                          └─ sugerir_transferencias(raw, config, search)
-                                    ↓
-                             dashboard.py
-                          ├─ _build_kpi_row() → 6 KPIs
-                          ├─ warehouse cards
-                          ├─ linea_section
-                          ├─ sidebar chips
-                          └─ _transfer_section
+S1 (HTTP) → JSON → s1_downloader (parse) → dict[str, dict[str, dict]]
+                                     ↓
+                             processor.py
+                           ├─ calcular_kpis_almacen(raw)
+                           ├─ obtener_metricas_lineas(kpis)
+                           ├─ obtener_metricas_categorias(kpis)
+                           ├─ contar_sin_linea(raw)
+                           └─ sugerir_transferencias(raw, config, search)
+                                     ↓
+                              dashboard.py
+                           ├─ _build_kpi_row() → 6 KPIs (modales ordenables)
+                           ├─ warehouse cards
+                           ├─ linea_section
+                           ├─ sidebar chips
+                           ├─ _transfer_section (sort propio)
+                           └─ _show_paginated_dlg (headers clicables)
 ```
 
 ### Patrones
@@ -121,6 +153,9 @@ S1 (HTTP) → Excel (19 cols) → xls_fallback (5 engines) → dict[str, dict[st
 - **Callback-based**: `Dashboard.set_on_refresh(cb)`, `on_linea_click`, `on_click`
 - **Snapshot diff**: cada warehouse guarda su `disponible_total` previo en JSON → muestra tendencia
 - **Chips toggle**: `_selected_alms` set, toggle visual sin recrear
+- **Headers reconstruidos por render**: evita controles duplicados al reabrir diálogos y garantiza alineación con las filas (ancho exacto por columna)
+- **Ciclo de sort**: 1er click asc → 2º desc → 3º reset (orden original)
+- **FilePicker en overlay**: `register_overlay()` agrega los pickers a `page.overlay` antes de su uso
 
 ---
 
@@ -128,39 +163,41 @@ S1 (HTTP) → Excel (19 cols) → xls_fallback (5 engines) → dict[str, dict[st
 
 ```
 g360-erp-stock-monitor/
-├── main.py                          # Entry point
-├── pyproject.toml                   # Python project metadata
+├── main.py                          # Entry point (ft.app)
+├── pyproject.toml                   # Python project metadata (flet==0.28.3)
 ├── requirements.txt                 # Pip deps
-├── run.bat                          # Launcher con uv
-├── skill.json                       # Skill descriptor
+├── run.bat                          # Launcher con uv (5 pasos auto-instalable)
+├── skill.json                       # Skill descriptor (cipsa)
+├── sync_portable.py                 # Sincroniza raíz → carpeta portable
 ├── assets/
 │   ├── data/
-│   │   ├── lineas.json              # Config almacenes + lineas + umbrales
+│   │   ├── lineas.json              # Config almacenes + líneas + umbrales
 │   │   ├── catalogo_productos.json  # 1088 productos de CIPSA
 │   │   ├── sample_data.json         # Fallback offline
-│   │   └── _snapshot_*.json         # Snapshots por almacen (autogenerado)
+│   │   └── _snapshot_*.json         # Snapshots por almacén (autogenerado)
 │   └── images/
-│       ├── Logo_cipsa_solid.svg     # Logo en sidebar
-│       └── cipsa.ico                # Icono de la aplicacion
+│       ├── Logo_cipsa_solid.svg     # Logo CIPSA en sidebar y README
+│       ├── Logo_cipsa_solid.png     # Logo CIPSA (PNG)
+│       ├── cipsa.ico                # Icono CIPSA (exe + acceso directo)
+│       └── favicon.ico              # Favicon
 ├── src/
-│   ├── app.py                       # StockMonitorApp (orquestador)
+│   ├── app.py                       # StockMonitorApp (orquestador + overlay)
 │   ├── config/
 │   │   └── theme.py                 # Paleta esmeralda, rgba utility
 │   ├── core/
-│   │   ├── constants.py             # S1_URL, rutas absolutas
-│   │   ├── s1_downloader.py         # Download + parse S1 Excel
-│   │   ├── xls_fallback.py          # 5 motores de lectura Excel
-│   │   └── processor.py             # KPI engine, metricas, transferencias
+│   │   ├── constants.py             # URL, rutas, ventana
+│   │   ├── s1_downloader.py         # Download + parse S1 JSON
+│   │   └── processor.py             # KPI engine, métricas, transferencias, export
 │   └── ui/
-│       ├── dashboard.py             # Layout + interactividad
-│       ├── warehouse_card.py        # Card de almacen (3 tipos display)
-│       └── linea_section.py         # Categorias → lineas
-└── g360-erp-stock-monitor-portable/ # Distribucion portable
+│       ├── dashboard.py             # Layout + interactividad + sort + export
+│       ├── warehouse_card.py        # Card de almacén (3 tipos display)
+│       └── linea_section.py         # Categorías → líneas
+└── g360-stock-monitor-portable/     # Distribución portable (sin Python)
 ```
 
 ---
 
-## Configuracion
+## Configuración
 
 ### `lineas.json`
 
@@ -186,20 +223,20 @@ g360-erp-stock-monitor/
 
 ### Health Filter (Umbrales por Cajas)
 
-| Estado | Condicion | Color |
+| Estado | Condición | Color |
 |--------|-----------|-------|
-| **Critico** | `disp < un_bx` (menos de 1 caja) | Rojo `#ef4444` |
+| **Crítico** | `disp < un_bx` (menos de 1 caja) | Rojo `#ef4444` |
 | **Alerta** | `un_bx <= disp <= un_bx * 5` (1 a 5 cajas) | Amarillo `#f59e0b` |
-| **OK** | `disp > un_bx * 5` (mas de 5 cajas) | Verde `#34d399` |
+| **OK** | `disp > un_bx * 5` (más de 5 cajas) | Verde `#34d399` |
 
 ### Almacenes: Roles y Display
 
-| Codigo | Nombre | Tipo Reporte | Rol | Control |
+| Código | Nombre | Tipo Reporte | Rol | Control |
 |--------|--------|--------------|-----|---------|
-| **VES** | VES | DESAGREGADO | **PRINCIPAL** | Si |
-| **121** | CLVES_INSPECCION | CONSOLIDADO | SECUNDARIO | Si |
-| **129** | CLVES_OUTLET | DESAGREGADO | SECUNDARIO | Si |
-| **40** | APT | DESAGREGADO | SECUNDARIO | Si |
+| **VES** | VES | DESAGREGADO | **PRINCIPAL** | Sí |
+| **121** | CLVES_INSPECCION | CONSOLIDADO | SECUNDARIO | Sí |
+| **129** | CLVES_OUTLET | DESAGREGADO | SECUNDARIO | Sí |
+| **40** | APT | DESAGREGADO | SECUNDARIO | Sí |
 | **118** | ALMACEN_118 | PCT | EXTERNO | No |
 | **92** | INSPECCION | PCT | EXTERNO | No |
 | **106** | OUTLET | PCT | EXTERNO | No |
@@ -207,12 +244,12 @@ g360-erp-stock-monitor/
 
 ### Transferencias Sugeridas
 
-Para cada SKU en VES (PRINCIPAL), evalua secundarios ordenados por importancia:
+Para cada SKU en VES (PRINCIPAL), evalúa secundarios ordenados por importancia:
 
-| Tipo | Condicion | Icono |
+| Tipo | Condición | Icono |
 |------|-----------|-------|
-| **Critico** | VES disponible <= 5 y secundario tiene disponible > 0 | Warning |
-| **Desbalance** | Secundario stock >= 3x VES stock y VES disp > 5 | Balance |
+| **Crítico** | VES disponible ≤ 5 y secundario tiene disponible > 0 | Warning |
+| **Desbalance** | Secundario stock ≥ 3x VES stock y VES disp > 5 | Balance |
 
 ---
 
@@ -220,22 +257,20 @@ Para cada SKU en VES (PRINCIPAL), evalua secundarios ordenados por importancia:
 
 | Paquete | Uso |
 |---------|-----|
-| flet | UI framework (desktop) |
-| requests | HTTP download from S1 |
-| xlrd | Leer .xls |
-| openpyxl | Leer .xlsx + exportacion |
-| beautifulsoup4 | Leer HTML tables |
+| flet (0.28.3) | UI framework (desktop) |
+| requests | HTTP download JSON desde API S1 |
+| openpyxl | Exportación de reportes Excel |
 
 ---
 
-## Instalacion
+## Instalación
 
 ### Requisitos
 
 - Windows 10/11
-- Conexion a internet (solo primera ejecucion)
+- Conexión a internet (solo primera ejecución)
 
-### Rapido
+### Rápido
 
 ```bash
 git clone https://github.com/carloscus/g360-erp-stock-monitor.git
@@ -253,50 +288,83 @@ uv sync
 
 ---
 
+## Inicio Rápido
+
+```bash
+# 1. Ejecutar el launcher (auto-instala uv + Python 3.11 + deps)
+run.bat
+
+# O usar el launcher minimizado (sin consola visible)
+launch.vbs
+```
+
+---
+
 ## Uso
 
-1. Ejecutar `run.bat` (auto-instala todo)
-2. La app descarga datos desde S1 automaticamente
-3. Explorar dashboard: KPIs, warehouse cards, categorias
-4. Usar sidebar para filtrar por almacen o buscar SKU
+1. Ejecutar `run.bat` (auto-instala todo) o `launch.vbs` (ventana minimizada)
+2. La app descarga datos desde S1 automáticamente
+3. Explorar dashboard: KPIs, warehouse cards, categorías
+4. Usar sidebar para filtrar por almacén o buscar SKU
 5. Revisar transferencias sugeridas
+6. **Ordenar tablas**: clic en cualquier header de los diálogos (asc → desc → reset). La columna y dirección activas (▲/▼) se muestran en el título
+7. **Exportar a Excel**: en los diálogos paginados, "Exportar Excel" abre el diálogo de configuración y luego el guardado nativo del sistema
 
 ---
 
 ## Portable
 
-El proyecto incluye `g360-erp-stock-monitor-portable/` para distribucion a PCs sin Python.
+El proyecto incluye `g360-stock-monitor-portable/` para distribución a PCs sin Python.
 
-| Archivo | Proposito |
+| Archivo | Propósito |
 |---------|-----------|
 | `run.bat` | Launcher 5 pasos: uv → Python → deps → update → app |
-| `build-portable.bat` | Genera .exe standalone con PyInstaller |
-| `create_shortcut.vbs` | Acceso directo en escritorio |
-| `sync_portable.py` | Sincroniza src/ y assets/ desde el proyecto raiz |
+| `launch.vbs` | Lanzador minimizado (evita consola visible) |
+| `create_shortcut.vbs` | Acceso directo en escritorio con icono CIPSA |
+| `sync_portable.py` | Sincroniza `src/`, `assets/`, `README.md` y archivos raíz a `g360-stock-monitor-portable/` |
+
+### Flujo de desarrollo vs distribución
+
+**Repositorio (versión desarrollo):**
+- Contiene código fuente, configuración y scripts de instalación
+- `.gitignore` excluye `.venv/`, `*-portable/`, `*.exe`, logs, pycache
+- `run.bat` auto-instala uv, Python 3.11, crea venv, instala deps y lanza la app
+- `launch.vbs` ejecuta `run.bat` minimizado para no mostrar consola
+
+**Carpeta portable (versión distribución):**
+- Se genera con `python sync_portable.py`
+- Contiene TODO preinstalado: `.venv/`, `src/`, `assets/`, `run.bat`, `launch.vbs`
+- No requiere internet ni permisos de instalación en PC destino
+- Solo incluye archivos necesarios para ejecutar (sin `uv.lock`, `sync_portable.py`, `skill.json`)
 
 ```bash
-# Sincronizar cambios
+# Sincronizar cambios a la carpeta portable
 python sync_portable.py
 
-# Ejecutar en PC destino
-g360-erp-stock-monitor-portable\run.bat
+# En PC destino: ejecutar el launcher minimizado
+g360-stock-monitor-portable\launch.vbs
 ```
 
 ---
 
 ## Decision Log
 
-| Fecha | Decision | Razon |
+| Fecha | Decisión | Razón |
 |-------|----------|-------|
 | May 2026 | `disponible` desde col19 | VBA original usa col19 como fuente de confianza |
-| May 2026 | Categorias filtradas (3) | OTROS sin linea no aporta valor |
-| May 2026 | Health filter por cajas (`un_bx`) | `un_bx` varia por producto; umbral fijo es impreciso |
+| May 2026 | Categorías filtradas (3) | OTROS sin línea no aporta valor |
+| May 2026 | Health filter por cajas (`un_bx`) | `un_bx` varía por producto; umbral fijo es impreciso |
 | May 2026 | KPI dialogs ignoran filtro de salud | Usuario necesita ver totales reales |
 | May 2026 | Launcher 5 pasos auto-instala | Experiencia zero-setup en PC limpia |
+| Jul 2026 | Sort solo en headers (sin barra de chips) | Evitaba doble encabezado y desalineación |
+| Jul 2026 | Headers con ancho exacto + GestureDetector | Encabezados alineados pixel-perfect con los valores |
+| Jul 2026 | Indicador ▲/▼ en el título del diálogo | Dirección de sort visible sin desalinear la tabla |
+| Jul 2026 | FilePicker registrado en `page.overlay` | `save_file()`/`pick_files()` fallan si el picker no está en el overlay |
+| Jul 2026 | Icono CIPSA oficial (`cipsa.ico`) | `build-portable.bat` y `create_shortcut.vbs` lo referenciaban sin existir |
 
 ---
 
-## Contribucion
+## Contribución
 
 1. Fork el repositorio
 2. Crea una rama (`git checkout -b feature/nueva-funcion`)
@@ -308,25 +376,38 @@ g360-erp-stock-monitor-portable\run.bat
 
 ## Licencia
 
-MIT License - ver [LICENSE](LICENSE) para mas detalles.
+MIT License - ver [LICENSE](LICENSE) para más detalles.
 
 ---
 
-## Familia G360
+## Ecosistema G360
 
-Este proyecto forma parte de la familia de microherramientas **G360** para apoyo CRM y gestion de datos en escritorio, enfocadas en areas como ventas, finanzas y logistica.
+Este proyecto forma parte de la familia de microherramientas **G360** para apoyo CRM y gestión de datos en escritorio, enfocadas en áreas como ventas, finanzas y logística.
+
+### Identidad Visual G360
+
+| Elemento | Valor |
+|----------|-------|
+| Marca | CIPSA (skill `cipsa`) |
+| Color primario | `#00d084` (verde) |
+| Signature mode | `powered` |
+| Signature text | "powered by G360" |
+| Logo | `logotypes/Logo_cipsa_solid.svg` |
 
 ### Herramientas Relacionadas
 
-- **[g360-cli](https://github.com/carloscus/g360-cli)**: Bootstrap de proyectos G360
-- **[g360-signature](https://github.com/carloscus/g360-signature)**: Web component de branding
+- **[g360-cli](https://github.com/carloscus/g360-cli)**: Bootstrap de proyectos G360 (CLI, plantillas, brand, auditoría)
+- **[g360-signature](https://github.com/carloscus/g360-signature)**: Web component de branding G360
 - **[g360-order-xlsx](https://github.com/carloscus/g360-order-xlsx)**: Procesador de cotizaciones Excel
+- **[g360-day-calculator](https://github.com/carloscus/g360-day-calculator)**: Calculadora de días laborables
+- **[g360-master-data](https://github.com/carloscus/g360-master-data)**: Gestión de datos maestros
 - **[g360-signature-creator](https://github.com/carloscus/g360-signature-creator)**: Generador de firmas corporativas
 
 ---
 
-**Marca**: G360
-**Isotipo**: 3 puntos verticales paralelos (gris-verde-gris) + chevron `>`
+**Marca**: G360 · **Isotipo**: 3 puntos verticales paralelos (gris-verde-gris) + chevron `>`
+**Signature**: powered by G360 · **Powered by**: [g360-signature](https://github.com/carloscus/g360-signature)
 **Autor**: Carlos Cusi
-**Desarrollo**: Con asistencia de herramientas de codigo IA (Vibe Code)
-**Powered by**: [g360-signature](https://github.com/carloscus/g360-signature)
+**Desarrollo**: Con asistencia de herramientas de código IA (Vibe Code)
+
+> Identidad generada desde el Brand System de `g360-cli` (`brand.json` v2.0.0).

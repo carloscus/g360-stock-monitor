@@ -6,7 +6,8 @@ from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment
 
-from src.core.constants import LINEAS_FILE, DATA_DIR
+from src.core.constants import LINEAS_FILE, DATA_DIR, PRIMARY_CATEGORIES
+from src.core.s1_downloader import get_api_sku_meta
 
 
 _CATALOGO: list[dict] | None = None
@@ -68,15 +69,44 @@ def update_catalogo_sku(sku: str, descripcion: str = "", linea: str = "", catego
     _load_catalogo()
 
 def _sku_info(sku: str) -> dict:
+    meta = get_api_sku_meta().get(sku)
+    catalogo_entry = None
     for p in _load_catalogo():
         if p["sku"] == sku:
-            return {
-                "linea": p.get("linea", ""),
-                "categoria": p.get("categoria", ""),
-                "un_bx": p.get("un_bx", 1),
-                "indice": p.get("orden", 9999),
-            }
-    return {"linea": "SIN LINEA", "categoria": "OTROS", "un_bx": 1, "indice": 9999}
+            catalogo_entry = p
+            break
+
+    if meta is not None:
+        if catalogo_entry:
+            api_orden = meta.get("orden")
+            indice = api_orden if api_orden and api_orden > 0 else catalogo_entry.get("orden", 9999)
+        else:
+            indice = 9999
+
+        return {
+            "linea": meta.get("linea") or (catalogo_entry.get("linea") if catalogo_entry else ""),
+            "linea_nombre": meta.get("linea_nombre") or (catalogo_entry.get("linea_nombre") if catalogo_entry else ""),
+            "categoria": meta.get("categoria", ""),
+            "un_bx": meta.get("un_bx", catalogo_entry.get("un_bx", 1) if catalogo_entry else 1),
+            "precio_lista": meta.get("precio_lista", catalogo_entry.get("precio_lista", 0) if catalogo_entry else 0),
+            "sin_catalogo": meta.get("sin_catalogo", False),
+            "estado_linea": meta.get("estado_linea", ""),
+            "indice": indice,
+        }
+
+    if catalogo_entry:
+        return {
+            "linea": catalogo_entry.get("linea", ""),
+            "linea_nombre": "",
+            "categoria": catalogo_entry.get("categoria", ""),
+            "un_bx": catalogo_entry.get("un_bx", 1),
+            "precio_lista": catalogo_entry.get("precio_lista", 0),
+            "sin_catalogo": False,
+            "estado_linea": "",
+            "indice": catalogo_entry.get("orden", 9999),
+        }
+
+    return {"linea": "", "linea_nombre": "", "categoria": "OTROS", "un_bx": 1, "precio_lista": 0, "sin_catalogo": False, "estado_linea": "", "indice": 9999}
 
 
 def load_lineas() -> dict:
@@ -91,9 +121,56 @@ def _warehouse_disp(warehouse_data: dict[str, dict], sku: str) -> int:
     return info.get("disponible", max(0, info.get("stock", 0) - info.get("predespacho", 0)))
 
 
+def _process_sku_kpi(sku: str, info: dict, stock_minimo: int = 0, un_bx: int = 1,
+                     linea_cod: str = "", categoria: str = "", sin_catalogo: bool = False) -> dict:
+    stock = info.get("stock", 0)
+    pred = info.get("predespacho", 0)
+    disp = info.get("disponible", max(0, stock - pred))
+    umbral = stock_minimo if stock_minimo > 0 else un_bx
+    return {
+        "stock": stock,
+        "pred": pred,
+        "disp": disp,
+        "un_bx": un_bx,
+        "linea_cod": linea_cod,
+        "categoria": categoria,
+        "sin_catalogo": sin_catalogo,
+        "critico": umbral > 0 and disp < umbral,
+        "alerta": umbral > 0 and umbral <= disp < umbral * 2,
+        "alto_stock": stock > 0 and pred / stock >= 0.85,
+        "stock_minimo": stock_minimo,
+    }
+
+
+def _update_linea_kpi(lineas_kpi: dict[str, dict], linea_cod: str, sku_kpi: dict):
+    if not linea_cod:
+        return
+    if linea_cod not in lineas_kpi:
+        lineas_kpi[linea_cod] = {"skus": 0, "stock": 0, "predespacho": 0, "disponible": 0, "alto_stock": 0}
+    lineas_kpi[linea_cod]["skus"] += 1
+    lineas_kpi[linea_cod]["stock"] += sku_kpi["stock"]
+    lineas_kpi[linea_cod]["predespacho"] += sku_kpi["pred"]
+    lineas_kpi[linea_cod]["disponible"] += sku_kpi["disp"]
+    if sku_kpi["alto_stock"]:
+        lineas_kpi[linea_cod]["alto_stock"] += 1
+
+
+def _update_categoria_kpi(categorias_kpi: dict[str, dict], categoria: str, sku_kpi: dict):
+    if not categoria:
+        return
+    if categoria not in categorias_kpi:
+        categorias_kpi[categoria] = {"skus": 0, "stock": 0, "predespacho": 0, "disponible": 0}
+    categorias_kpi[categoria]["skus"] += 1
+    categorias_kpi[categoria]["stock"] += sku_kpi["stock"]
+    categorias_kpi[categoria]["predespacho"] += sku_kpi["pred"]
+    categorias_kpi[categoria]["disponible"] += sku_kpi["disp"]
+
+
 def calcular_kpis_almacen(
     raw: dict[str, dict[str, dict]]
 ) -> dict[str, dict]:
+    config = load_lineas()
+    lineas_config = {ln["codigo"]: ln for ln in config.get("lineas", [])}
     result = {}
     for cod_alm, skus in raw.items():
         lineas_kpi: dict[str, dict] = {}
@@ -105,52 +182,47 @@ def calcular_kpis_almacen(
         disp_bx = 0
         alertas = 0
         criticos = 0
-        sobre_comprometidos = 0
+        alto_stock = 0
         sku_count = 0
+        sin_catalogo_count = 0
 
         for sku, info in skus.items():
-            stock = info.get("stock", 0)
-            pred = info.get("predespacho", 0)
-            disp = info.get("disponible", max(0, stock - pred))
+            cat_info = _sku_info(sku)
+            stock_minimo = lineas_config.get(cat_info["linea"], {}).get("stock_minimo", 0)
+            un_bx = cat_info["un_bx"]
+            sku_kpi = _process_sku_kpi(
+                sku, info,
+                stock_minimo=stock_minimo,
+                un_bx=un_bx,
+                linea_cod=cat_info["linea"],
+                categoria=cat_info["categoria"],
+                sin_catalogo=cat_info.get("sin_catalogo", False),
+            )
+            stock = sku_kpi["stock"]
+            pred = sku_kpi["pred"]
+            disp = sku_kpi["disp"]
 
             stock_total += stock
             predespacho_total += pred
             disponible_total += disp
             sku_count += 1
 
-            un_bx = _sku_info(sku)["un_bx"]
             bx_total += stock // un_bx if un_bx > 0 else stock
             disp_bx += disp // un_bx if un_bx > 0 else disp
 
-            if un_bx > 0 and disp < un_bx:
+            if sku_kpi["critico"]:
                 criticos += 1
-            elif un_bx > 0 and disp <= un_bx * 5:
+            elif sku_kpi["alerta"]:
                 alertas += 1
 
-            if stock > 0 and pred / stock >= 0.85:
-                sobre_comprometidos += 1
+            if sku_kpi["alto_stock"]:
+                alto_stock += 1
 
-            cat_info = _sku_info(sku)
-            linea_cod = cat_info["linea"]
-            categoria = cat_info["categoria"]
+            if sku_kpi["sin_catalogo"]:
+                sin_catalogo_count += 1
 
-            if linea_cod:
-                if linea_cod not in lineas_kpi:
-                    lineas_kpi[linea_cod] = {"skus": 0, "stock": 0, "predespacho": 0, "disponible": 0, "sobre_comprometidos": 0}
-                lineas_kpi[linea_cod]["skus"] += 1
-                lineas_kpi[linea_cod]["stock"] += stock
-                lineas_kpi[linea_cod]["predespacho"] += pred
-                lineas_kpi[linea_cod]["disponible"] += disp
-                if stock > 0 and pred / stock >= 0.95:
-                    lineas_kpi[linea_cod]["sobre_comprometidos"] += 1
-
-            if categoria:
-                if categoria not in categorias_kpi:
-                    categorias_kpi[categoria] = {"skus": 0, "stock": 0, "predespacho": 0, "disponible": 0}
-                categorias_kpi[categoria]["skus"] += 1
-                categorias_kpi[categoria]["stock"] += stock
-                categorias_kpi[categoria]["predespacho"] += pred
-                categorias_kpi[categoria]["disponible"] += disp
+            _update_linea_kpi(lineas_kpi, sku_kpi["linea_cod"], sku_kpi)
+            _update_categoria_kpi(categorias_kpi, sku_kpi["categoria"], sku_kpi)
 
         prev = _load_snapshot(cod_alm)
         cambio = None
@@ -167,9 +239,10 @@ def calcular_kpis_almacen(
             "bx_total": bx_total,
             "disponible_bx": disp_bx,
             "sku_count": sku_count,
+            "sin_catalogo_count": sin_catalogo_count,
             "alertas": alertas,
             "criticos": criticos,
-            "sobre_comprometidos": sobre_comprometidos,
+            "alto_stock": alto_stock,
             "lineas": lineas_kpi,
             "categorias": categorias_kpi,
             "cambio": cambio,
@@ -182,17 +255,30 @@ def calcular_kpis_almacen(
 
 def obtener_metricas_lineas(
     kpis_por_almacen: dict[str, dict],
+    raw_data: dict[str, dict[str, dict]] | None = None,
     alm_config: dict | None = None,
-) -> list[dict]:
+) -> tuple[list[dict], list[dict]]:
     config = load_lineas()
     lineas_config = {ln["codigo"]: ln for ln in config.get("lineas", [])}
     linea_categoria: dict[str, str] = {}
+    linea_nombre: dict[str, str] = {}
+    for meta in get_api_sku_meta().values():
+        lc = meta.get("linea", "")
+        cat = meta.get("categoria", "")
+        if lc and cat:
+            linea_categoria[lc] = cat
+        if lc and meta.get("linea_nombre"):
+            linea_nombre[lc] = meta.get("linea_nombre", "")
     for p in _load_catalogo():
         lc = p.get("linea", "")
         cat = p.get("categoria", "")
-        if lc and cat in PRIMARY_CATEGORIES:
+        if lc and cat and lc not in linea_categoria:
             linea_categoria[lc] = cat
+        if lc and lc not in linea_nombre:
+            linea_nombre[lc] = lc
+
     lineas_aggregated: dict[str, dict] = {}
+    lineas_sin_catalogo: dict[str, dict] = {}
 
     for alm_data in kpis_por_almacen.values():
         cod_alm = alm_data.get("codigo", "")
@@ -200,13 +286,21 @@ def obtener_metricas_lineas(
         rol = cfg_alm.get("rol", "")
 
         for cod_linea, info in alm_data.get("lineas", {}).items():
-            if linea_categoria.get(cod_linea) not in PRIMARY_CATEGORIES:
-                continue
-            if cod_linea not in lineas_aggregated:
+            target = lineas_aggregated
+            if raw_data and cod_alm in raw_data:
+                tiene_vigente = any(
+                    not _sku_info(sku).get("sin_catalogo")
+                    for sku in raw_data[cod_alm]
+                    if _sku_info(sku).get("linea") == cod_linea
+                )
+                if not tiene_vigente:
+                    target = lineas_sin_catalogo
+
+            if cod_linea not in target:
                 cfg = lineas_config.get(cod_linea, {})
-                lineas_aggregated[cod_linea] = {
+                target[cod_linea] = {
                     "codigo": cod_linea,
-                    "nombre": cfg.get("nombre", cod_linea),
+                    "nombre": cfg.get("nombre", linea_nombre.get(cod_linea, cod_linea)),
                     "categoria": linea_categoria.get(cod_linea, ""),
                     "grupo": cfg.get("grupo", ""),
                     "stock_minimo": cfg.get("stock_minimo", 0),
@@ -214,19 +308,22 @@ def obtener_metricas_lineas(
                     "predespacho": 0,
                     "disponible": 0,
                     "skus": 0,
-                    "sobre_comprometidos": 0,
+                    "alto_stock": 0,
                     "stock_ves": 0,
                     "stock_qc": 0,
                     "stock_secundario": 0,
                     "stock_externo": 0,
                     "predespacho_ves": 0,
+                    "estado_linea": "",
                 }
-            entry = lineas_aggregated[cod_linea]
+            entry = target[cod_linea]
             entry["stock"] += info["stock"]
             entry["predespacho"] += info["predespacho"]
             entry["disponible"] += info["disponible"]
             entry["skus"] += info["skus"]
-            entry["sobre_comprometidos"] += info.get("sobre_comprometidos", 0)
+            entry["alto_stock"] += info.get("alto_stock", 0)
+            if not entry["estado_linea"]:
+                entry["estado_linea"] = info.get("estado_linea", "")
 
             if rol == "PRINCIPAL":
                 entry["stock_ves"] += info["stock"]
@@ -238,7 +335,7 @@ def obtener_metricas_lineas(
             elif rol == "EXTERNO":
                 entry["stock_externo"] += info["stock"]
 
-    for entry in lineas_aggregated.values():
+    for entry in list(lineas_aggregated.values()) + list(lineas_sin_catalogo.values()):
         sm = entry["stock_minimo"]
         sv = entry["stock_ves"]
         if sm > 0 and sv < sm:
@@ -251,45 +348,46 @@ def obtener_metricas_lineas(
             entry["salud"] = "bueno"
             entry["pct_minimo"] = round(sv / sm * 100, 1) if sm > 0 else 100
 
-    return sorted(
-        lineas_aggregated.values(),
-        key=lambda x: x["disponible"],
-        reverse=True,
+    return (
+        sorted(lineas_aggregated.values(), key=lambda x: x["disponible"], reverse=True),
+        sorted(lineas_sin_catalogo.values(), key=lambda x: x["disponible"], reverse=True),
     )
-
-
-PRIMARY_CATEGORIES = {"VINIBALL", "VINIFAN", "REPRESENTADAS"}
 
 
 def obtener_metricas_categorias(
-    kpis_por_almacen: dict[str, dict]
-) -> list[dict]:
+    kpis_por_almacen: dict[str, dict],
+    raw_data: dict[str, dict[str, dict]] | None = None,
+) -> tuple[list[dict], list[dict]]:
     categorias: dict[str, dict] = {}
+    categorias_sin_catalogo: dict[str, dict] = {}
+
     for alm_data in kpis_por_almacen.values():
+        cod_alm = alm_data.get("codigo", "")
         for cat, info in alm_data.get("categorias", {}).items():
-            if cat not in PRIMARY_CATEGORIES:
+            if not cat:
                 continue
-            if cat not in categorias:
-                categorias[cat] = {"categoria": cat, "stock": 0, "predespacho": 0, "disponible": 0, "skus": 0}
-            categorias[cat]["stock"] += info["stock"]
-            categorias[cat]["predespacho"] += info["predespacho"]
-            categorias[cat]["disponible"] += info["disponible"]
-            categorias[cat]["skus"] += info["skus"]
+            target = categorias
+            if raw_data and cod_alm in raw_data:
+                tiene_vigente = any(
+                    not _sku_info(sku).get("sin_catalogo")
+                    for sku in raw_data.get(cod_alm, [])
+                    if _sku_info(sku).get("categoria") == cat
+                )
+                if not tiene_vigente:
+                    target = categorias_sin_catalogo
+
+            if cat not in target:
+                target[cat] = {"categoria": cat, "stock": 0, "predespacho": 0, "disponible": 0, "skus": 0}
+            target[cat]["stock"] += info["stock"]
+            target[cat]["predespacho"] += info["predespacho"]
+            target[cat]["disponible"] += info["disponible"]
+            target[cat]["skus"] += info["skus"]
 
     orden = {"VINIBALL": 0, "VINIFAN": 1, "REPRESENTADAS": 2}
-    return sorted(
-        categorias.values(),
-        key=lambda x: orden.get(x["categoria"], 99),
+    return (
+        sorted(categorias.values(), key=lambda x: (orden.get(x["categoria"], 99), x["categoria"])),
+        sorted(categorias_sin_catalogo.values(), key=lambda x: (orden.get(x["categoria"], 99), x["categoria"])),
     )
-
-
-def contar_sin_linea(raw: dict[str, dict[str, dict]]) -> int:
-    total = 0
-    for skus in raw.values():
-        for sku in skus:
-            if _sku_info(sku)["categoria"] == "OTROS":
-                total += 1
-    return total
 
 
 def _snapshot_path(warehouse_code: str) -> str:
@@ -314,11 +412,71 @@ def _save_snapshot(warehouse_code: str, data: dict):
         json.dump(data, f, ensure_ascii=False)
 
 
+def leer_ultima_actualizacion() -> str | None:
+    """Timestamp más reciente entre los snapshots de almacenes, en formato HH:MM:SS.
+
+    Devuelve None si no hay snapshots válidos.
+    """
+    latest = None
+    for path in DATA_DIR.glob("_snapshot_*.json"):
+        try:
+            with open(path, encoding="utf-8") as f:
+                ts = json.load(f).get("timestamp")
+            if ts and (latest is None or ts > latest):
+                latest = ts
+        except Exception:
+            continue
+    if not latest:
+        return None
+    try:
+        return datetime.fromisoformat(latest).strftime("%H:%M:%S")
+    except Exception:
+        return str(latest)[:19]
+
+
 def _warehouse_sort_key(cod: str, alm_config: dict) -> tuple:
     cfg = alm_config.get(cod, {})
     rol = cfg.get("rol", "")
     rol_order = {"PRINCIPAL": 0, "SECUNDARIO": 1, "EXTERNO": 2}
     return (rol_order.get(rol, 9), cfg.get("prioridad", 99))
+
+
+def _build_search_transfer_result(sku: str, info: dict, almacen: str, alm_config: dict) -> dict:
+    d = info
+    disp = d.get("disponible", max(0, d.get("stock", 0) - d.get("predespacho", 0)))
+    cat = _sku_info(sku)
+    rol = alm_config.get(almacen, {}).get("rol", "")
+    return {
+        "sku": sku,
+        "descripcion": d.get("descripcion", ""),
+        "linea": cat["linea"],
+        "un_bx": cat["un_bx"],
+        "almacen": almacen,
+        "rol": rol,
+        "stock": d.get("stock", 0),
+        "predespacho": d.get("predespacho", 0),
+        "disponible": disp,
+    }
+
+
+def _add_transfer_match(resultados: list[dict], sku: str, pinfo: dict, p_disp: int,
+                         scod: str, sdata: dict, s_disp: int, tipo: str, principal: str):
+    cat = _sku_info(sku)
+    resultados.append({
+        "sku": sku,
+        "descripcion": pinfo.get("descripcion", ""),
+        "linea": cat["linea"],
+        "un_bx": cat["un_bx"],
+        "tipo": tipo,
+        "principal": principal,
+        "p_stock": pinfo.get("stock", 0),
+        "p_pred": pinfo.get("predespacho", 0),
+        "p_disp": p_disp,
+        "secundario": scod,
+        "s_stock": sdata.get("stock", 0),
+        "s_pred": sdata.get("predespacho", 0),
+        "s_disp": s_disp,
+    })
 
 
 def sugerir_transferencias(
@@ -351,44 +509,13 @@ def sugerir_transferencias(
                     d = raw[a].get(sku)
                     if not d:
                         continue
-                    disp = d.get("disponible", max(0, d.get("stock", 0) - d.get("predespacho", 0)))
-                    cat = _sku_info(sku)
-                    rol = alm_config.get(a, {}).get("rol", "")
-                    resultados.append({
-                        "sku": sku,
-                        "descripcion": d.get("descripcion", ""),
-                        "linea": cat["linea"],
-                        "un_bx": cat["un_bx"],
-                        "almacen": a,
-                        "rol": rol,
-                        "stock": d.get("stock", 0),
-                        "predespacho": d.get("predespacho", 0),
-                        "disponible": disp,
-                    })
+                    resultados.append(_build_search_transfer_result(sku, d, a, alm_config))
         return resultados[:20]
 
     if not principal:
         return []
     p_data = raw.get(principal, {})
     resultados = []
-
-    def add(sku, pinfo, p_disp, scod, sdata, s_disp, tipo):
-        cat = _sku_info(sku)
-        resultados.append({
-            "sku": sku,
-            "descripcion": pinfo.get("descripcion", ""),
-            "linea": cat["linea"],
-            "un_bx": cat["un_bx"],
-            "tipo": tipo,
-            "principal": principal,
-            "p_stock": pinfo.get("stock", 0),
-            "p_pred": pinfo.get("predespacho", 0),
-            "p_disp": p_disp,
-            "secundario": scod,
-            "s_stock": sdata.get("stock", 0),
-            "s_pred": sdata.get("predespacho", 0),
-            "s_disp": s_disp,
-        })
 
     for sku, pinfo in p_data.items():
         p_stock = pinfo.get("stock", 0)
@@ -404,165 +531,364 @@ def sugerir_transferencias(
             s_disp = sdata.get("disponible", max(0, s_stock - s_pred))
 
             if p_disp <= umbral and s_disp > 0:
-                add(sku, pinfo, p_disp, scod, sdata, s_disp, "critico")
+                _add_transfer_match(resultados, sku, pinfo, p_disp, scod, sdata, s_disp, "critico", principal)
                 break
 
             if s_stock > 0 and p_stock > 0 and (s_stock / p_stock) >= 3 and p_disp > umbral:
-                add(sku, pinfo, p_disp, scod, sdata, s_disp, "desbalance")
+                _add_transfer_match(resultados, sku, pinfo, p_disp, scod, sdata, s_disp, "desbalance", principal)
                 break
 
     return resultados
 
-def export_to_excel(data_items: list, file_path: str, title: str, include_details: bool = False, include_summary: bool = True):
-    """
-    Genera un archivo Excel profesional con hojas por línea y formato condicional.
-    """
-    wb = Workbook()
-    
-    if include_summary:
-        ws_resumen = wb.active
-        ws_resumen.title = "Resumen"
-    else:
-        ws_resumen = None
+def _qc_codes(alm_config: dict) -> set:
+    """Códigos de almacén de control de calidad (nombre contiene 'inspección')."""
+    return {cod for cod, cfg in alm_config.items()
+            if "INSPECCION" in (cfg.get("nombre") or "").upper()}
 
-    # Agrupar por línea
+
+def _extract_report_skus(data_items: list, raw: dict | None) -> list:
+    """Extrae los SKUs reales presentes en data_items, verificados contra raw."""
+    skus = []
+    for d in data_items:
+        if not isinstance(d, (list, tuple)) or not d:
+            continue
+        if d[0] == "sep":
+            continue
+        sku = d[1] if d[0] == "row" and len(d) > 1 else d[0]
+        if not isinstance(sku, str) or not sku.isdigit():
+            continue
+        if raw is not None and not any(isinstance(al, dict) and sku in al for al in raw.values()):
+            continue
+        skus.append(sku)
+    return list(dict.fromkeys(skus))
+
+
+def _row_fields(d) -> dict | None:
+    """Normaliza un item de data_items a {sku, desc, unit, st, pre, disp} o None."""
+    if not isinstance(d, (list, tuple)) or not d:
+        return None
+    if d[0] == "row" and len(d) >= 3:
+        info = d[2] or {}
+        cat = _sku_info(d[1])
+        return {
+            "sku": d[1],
+            "desc": info.get("descripcion", "") or cat.get("descripcion", ""),
+            "unit": cat.get("sku_unit") or "UND",
+            "st": info.get("stock", 0),
+            "pre": info.get("predespacho", 0),
+            "disp": info.get("disponible", max(0, info.get("stock", 0) - info.get("predespacho", 0))),
+        }
+    sku = d[0]
+    if not isinstance(sku, str) or not sku.isdigit():
+        return None
+    n = len(d)
+    if n >= 8:  # (sku, desc, unit, st, pre, disp, alm, idx) — SKUs por Línea
+        return {"sku": sku, "desc": d[1], "unit": d[2] or "UND",
+                "st": d[3], "pre": d[4], "disp": d[5]}
+    if n == 7:  # (sku, desc, alm, pred, disp, ratio, stock) — ≥85%
+        return {"sku": sku, "desc": d[1], "unit": "UND", "st": d[6], "pre": d[3], "disp": d[4]}
+    if n == 6:  # (sku, desc, unit/alm, st, pre, disp) — clásico o alertas/críticos
+        cat = _sku_info(sku)
+        return {"sku": sku, "desc": d[1], "unit": cat.get("sku_unit") or "UND",
+                "st": d[3], "pre": d[4], "disp": d[5]}
+    if n == 5:  # (sku, desc, alm, pred, disp) — sin categoría
+        return {"sku": sku, "desc": d[1], "unit": "UND", "st": d[3] + d[4], "pre": d[3], "disp": d[4]}
+    if n == 4:  # (sku, desc, alm, disp) — alertas / críticos
+        return {"sku": sku, "desc": d[1], "unit": "UND", "st": 0, "pre": 0, "disp": d[3]}
+    return {"sku": sku, "desc": str(d[1]) if n > 1 else "", "unit": "UND", "st": 0, "pre": 0, "disp": 0}
+
+
+def _build_role_report(skus: list, raw: dict, alm_config: dict, lineas_config: list | None, scope: str) -> dict:
+    """Agrega stock por línea y por rol (VES / QC / Secundario / Externo) dentro del alcance."""
+    qc = _qc_codes(alm_config)
+    lc = {l["codigo"]: l for l in (lineas_config or [])}
+    wh = {cod: cfg for cod, cfg in alm_config.items()
+          if cod in raw and (scope != "control" or cfg.get("participa_control"))}
+    aggr = {}
+    for cod, cfg in wh.items():
+        rol = cfg.get("rol", "")
+        is_qc = cod in qc
+        for sku in skus:
+            info = raw[cod].get(sku)
+            if not info:
+                continue
+            cat = _sku_info(sku)
+            linea = cat.get("linea") or ""
+            e = aggr.get(linea)
+            if e is None:
+                cl = lc.get(linea, {})
+                e = aggr[linea] = {
+                    "nombre": cl.get("nombre") or cat.get("linea_nombre") or linea,
+                    "stock_minimo": cl.get("stock_minimo", 0),
+                    "skus": set(), "stock": 0, "pred": 0,
+                    "ves": 0, "qc": 0, "sec": 0, "ext": 0,
+                }
+            stock = info.get("stock", 0)
+            pred = info.get("predespacho", 0)
+            disp = info.get("disponible", max(0, stock - pred))
+            e["skus"].add(sku)
+            e["stock"] += stock
+            e["pred"] += pred
+            if rol == "PRINCIPAL":
+                e["ves"] += disp
+            elif is_qc:
+                e["qc"] += stock
+            elif rol == "SECUNDARIO":
+                e["sec"] += disp
+            elif rol == "EXTERNO":
+                e["ext"] += disp
+    for e in aggr.values():
+        sm = e["stock_minimo"]
+        sv = e["ves"]
+        if sm > 0 and sv < sm:
+            e["salud"] = "CRITICO"
+        elif sm > 0 and sv < sm * 2:
+            e["salud"] = "ALERTA"
+        else:
+            e["salud"] = "BUENO"
+    return aggr
+
+
+def _line_qc_stock(sku: str, raw: dict, alm_config: dict, scope: str) -> int:
+    """Stock del SKU en almacenes de control de calidad dentro del alcance."""
+    total = 0
+    for cod in _qc_codes(alm_config):
+        if cod in raw and (scope != "control" or alm_config[cod].get("participa_control")):
+            info = raw[cod].get(sku)
+            if info:
+                total += info.get("stock", 0)
+    return total
+
+
+def _write_role_resumen(ws, role_lines: dict, header_fill, white_font, red_fill, yellow_fill, green_fill):
+    headers = ["Línea", "VES", "QC", "Sec.", "Ext.", "Disp. Total", "% Pred.", "Salud"]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = white_font
+        cell.alignment = Alignment(horizontal="center")
+
+    lines = sorted(role_lines.items(), key=lambda kv: min(_sku_info(s)["indice"] for s in kv[1]["skus"]))
+
+    for linea, e in lines:
+        disp_total = e["ves"] + e["sec"] + e["ext"]
+        ratio = (e["pred"] / e["stock"] * 100) if e["stock"] > 0 else 0.0
+        ws.append([e["nombre"], e["ves"], e["qc"], e["sec"], e["ext"],
+                   disp_total, f"{ratio:.1f}%", e["salud"]])
+        r = ws.max_row
+        salud_cell = ws.cell(row=r, column=8)
+        if e["salud"] == "CRITICO":
+            salud_cell.fill = red_fill
+        elif e["salud"] == "ALERTA":
+            salud_cell.fill = yellow_fill
+        else:
+            salud_cell.fill = green_fill
+        disp_cell = ws.cell(row=r, column=6)
+        if disp_total <= 50:
+            disp_cell.fill = red_fill
+        elif disp_total <= 200:
+            disp_cell.fill = yellow_fill
+        else:
+            disp_cell.fill = green_fill
+        for i in range(2, 8):
+            ws.cell(row=r, column=i).alignment = Alignment(horizontal="right")
+        ws.cell(row=r, column=8).alignment = Alignment(horizontal="center")
+
+    ws.column_dimensions['A'].width = 30
+    for col in "BCDEF":
+        ws.column_dimensions[col].width = 14
+    ws.column_dimensions['G'].width = 12
+    ws.column_dimensions['H'].width = 12
+
+
+def _write_classic_resumen(ws, grouped_data: dict, header_fill, white_font, red_fill, yellow_fill, green_fill):
+    ws.append(["Línea", "SKUs", "Stock Total", "Predespacho", "Disponible", "% Predespacho"])
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = white_font
+        cell.alignment = Alignment(horizontal="center")
+    for linea, items in grouped_data.items():
+        st = pre = disp = 0
+        for d in items:
+            f = _row_fields(d)
+            if f is None:
+                continue
+            st += f["st"]
+            pre += f["pre"]
+            disp += f["disp"]
+        ratio = (pre / st * 100) if st > 0 else 0
+        ws.append([linea, len(items), st, pre, disp, f"{ratio:.1f}%"])
+        cell_disp = ws.cell(row=ws.max_row, column=5)
+        if disp <= 50:
+            cell_disp.fill = red_fill
+        elif disp <= 200:
+            cell_disp.fill = yellow_fill
+        else:
+            cell_disp.fill = green_fill
+        for i in range(2, 7):
+            ws.cell(row=ws.max_row, column=i).alignment = Alignment(horizontal="right")
+    ws.column_dimensions['A'].width = 30
+    ws.column_dimensions['C'].width = 15
+    ws.column_dimensions['D'].width = 15
+    ws.column_dimensions['E'].width = 15
+    ws.column_dimensions['F'].width = 15
+
+
+_AGG_HEADERS = {
+    "Almacenes": ["Cód", "Stock", "Pred.", "Disp.", "Alertas", "Críticos"],
+    "SKUs por Categoría": ["Categoría", "SKUs", "Disp."],
+    "Disponible por Línea": ["Línea", "Disponible", "Stock", "SKUs"],
+    "Predespacho por Línea": ["Línea", "Predespacho", "Stock", "SKUs"],
+}
+
+
+def _write_generic_table(ws, data_items: list, title: str, header_fill, white_font):
+    """Exporta tablas agregadas (Almacenes, por Línea, Categorías, Predespacho) tal cual."""
+    rows = [d for d in data_items if isinstance(d, (list, tuple))]
+    if not rows:
+        return
+    key = next((k for k in _AGG_HEADERS if title.startswith(k)), None)
+    headers = _AGG_HEADERS.get(key) if key else [f"Col {i + 1}" for i in range(max(len(r) for r in rows))]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = white_font
+        cell.alignment = Alignment(horizontal="center")
+    for d in rows:
+        vals = []
+        for v in d[:len(headers)]:
+            if isinstance(v, (list, tuple, set)):
+                vals.append(", ".join(str(x) for x in v))
+            else:
+                vals.append(v)
+        ws.append(vals)
+    ws.column_dimensions['A'].width = 35
+    for col in "BCD":
+        ws.column_dimensions[col].width = 16
+
+
+def _group_data_by_linea(data_items: list, real_skus: set) -> dict[str, list]:
     grouped_data = {}
     for item in data_items:
-        # Extraer info según el formato del diálogo
-        sku = item[0] if isinstance(item, (list, tuple)) else item.get("sku")
-        info = _sku_info(sku)
-        linea = info.get("linea", "SIN LINEA")
-        if linea not in grouped_data:
-            grouped_data[linea] = []
-        grouped_data[linea].append(item)
+        fields = _row_fields(item)
+        if fields is None:
+            continue
+        sku = fields["sku"]
+        if real_skus and sku not in real_skus:
+            continue
+        linea = _sku_info(sku).get("linea", "")
+        grouped_data.setdefault(linea, []).append(item)
+    return grouped_data
 
-    # Estilos
+
+def _write_linea_sheet(ws, items: list, role_line: dict | None, include_details: bool,
+                        header_fill, white_font, red_fill, yellow_fill, green_fill,
+                        raw: dict | None, alm_config: dict | None, scope: str):
+    show_qc = bool(role_line and role_line["qc"] > 0)
+    headers = ["SKU", "Descripción", "Und", "Disponible (UND)", "Disponible (BX)"]
+    if show_qc:
+        headers.append("QC (Stock)")
+    if include_details:
+        headers.extend(["Stock Total", "Predespacho"])
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = white_font
+        cell.alignment = Alignment(horizontal="center")
+
+    for d in items:
+        f = _row_fields(d)
+        if f is None:
+            continue
+        un_bx = _sku_info(f["sku"])["un_bx"]
+        dbx = f["disp"] // un_bx if un_bx > 0 else f["disp"]
+        row_data = [f["sku"], f["desc"], f["unit"], f["disp"], dbx]
+        if show_qc:
+            row_data.append(_line_qc_stock(f["sku"], raw, alm_config, scope))
+        if include_details:
+            row_data.extend([f["st"], f["pre"]])
+        ws.append(row_data)
+        disp_cell = ws.cell(row=ws.max_row, column=4)
+        if f["disp"] <= 5:
+            disp_cell.fill = red_fill
+        elif f["disp"] <= 10:
+            disp_cell.fill = yellow_fill
+        else:
+            disp_cell.fill = green_fill
+
+    ws.column_dimensions['A'].width = 15
+    ws.column_dimensions['B'].width = 50
+    ws.column_dimensions['D'].width = 15
+
+
+def _write_excel_resumen(ws_resumen, role_lines, grouped_data, sorted_lineas, title,
+                          include_summary, header_fill, white_font, red_fill, yellow_fill, green_fill):
+    if role_lines:
+        ws_resumen.title = "Resumen"
+        _write_role_resumen(ws_resumen, role_lines, header_fill, white_font, red_fill, yellow_fill, green_fill)
+    elif sorted_lineas:
+        ws_resumen.title = "Resumen"
+        _write_classic_resumen(ws_resumen, grouped_data, header_fill, white_font, red_fill, yellow_fill, green_fill)
+    else:
+        ws_resumen = None
+    return ws_resumen
+
+
+def export_to_excel(data_items: list, file_path: str, title: str, include_details: bool = False,
+                    include_summary: bool = True, scope: str = "control",
+                    raw: dict | None = None, alm_config: dict | None = None,
+                    lineas_config: list | None = None):
+    """
+    Genera un archivo Excel profesional con hojas por línea y formato condicional.
+    scope: "control" (VES + secundarios + QC) o "todos" (incluye externos).
+    Con `raw`/`alm_config` presentes, el Resumen desglosa por rol (VES/QC/Sec./Ext.) y salud.
+    """
+    wb = Workbook()
+    wb.properties.creator = "ccusi"
+    wb.properties.description = "Generado por G360"
+
     header_fill = PatternFill(start_color="10B981", end_color="10B981", fill_type="solid")
     white_font = Font(color="FFFFFF", bold=True)
     red_fill = PatternFill(start_color="FCA5A5", end_color="FCA5A5", fill_type="solid")
     yellow_fill = PatternFill(start_color="FDE68A", end_color="FDE68A", fill_type="solid")
     green_fill = PatternFill(start_color="BBF7D0", end_color="BBF7D0", fill_type="solid")
-    
-    if ws_resumen:
-        # Configurar Encabezados de Resumen
-        resumen_headers = ["Línea", "SKUs", "Stock Total", "Predespacho", "Disponible", "% Predespacho"]
-        ws_resumen.append(resumen_headers)
-        for cell in ws_resumen[1]:
-            cell.fill = header_fill
-            cell.font = white_font
-            cell.alignment = Alignment(horizontal="center")
 
-    summary_stats = []
+    skus = _extract_report_skus(data_items, raw) if raw else []
+    real_skus = set(skus)
+    role_lines = _build_role_report(skus, raw, alm_config, lineas_config, scope) if (skus and alm_config) else None
 
-    # Ordenar líneas según el catálogo si es posible
-    # Usamos el índice del primer producto de cada línea como criterio de orden de la hoja
-    def get_line_order(line_name):
-        items = grouped_data[line_name]
-        if not items:
-            return 9999
-        return _sku_info(items[0][0] if isinstance(items[0], (tuple, list)) else items[0].get("sku"))["indice"]
+    grouped_data = _group_data_by_linea(data_items, real_skus)
 
-    if not grouped_data:
-        # Si no hay datos, crear al menos una hoja vacía para evitar error de openpyxl
-        wb.create_sheet("Sin Datos")
+    def line_indice(linea):
+        for it in grouped_data[linea]:
+            f = _row_fields(it)
+            if f:
+                return _sku_info(f["sku"])["indice"]
+        return 9999
 
-    sorted_lineas = sorted(grouped_data.keys(), key=get_line_order)
+    sorted_lineas = sorted(grouped_data.keys(), key=line_indice)
+
+    ws_resumen = None
+    if include_summary:
+        ws_resumen = wb.active
+        ws_resumen = _write_excel_resumen(ws_resumen, role_lines, grouped_data, sorted_lineas, title,
+                                          include_summary, header_fill, white_font, red_fill, yellow_fill, green_fill)
 
     for linea in sorted_lineas:
-        ws = wb.create_sheet(title=linea[:30]) # Excel limita a 31 caracteres
-        
-        # Encabezados
-        headers = ["SKU", "Descripción", "Und", "Disponible (UND)", "Disponible (BX)"]
-        if include_details:
-            headers.extend(["Stock Total", "Predespacho"])
-        
-        ws.append(headers)
-        for cell in ws[1]:
-            cell.fill = header_fill
-            cell.font = white_font
-            cell.alignment = Alignment(horizontal="center")
+        ws = wb.create_sheet(title=linea[:31])
+        rline = role_lines.get(linea) if role_lines else None
+        _write_linea_sheet(ws, grouped_data[linea], rline, include_details,
+                           header_fill, white_font, red_fill, yellow_fill, green_fill,
+                           raw, alm_config, scope)
 
-        # Datos ordenados por índice de catálogo
-        items = grouped_data[linea]
-        # Intentar ordenar por el campo 'indice' o similar presente en el item
-        try:
-            items.sort(key=lambda x: _sku_info(x[0] if isinstance(x, (tuple, list)) else x.get("sku"))["indice"])
-        except Exception:
-            pass
-
-        line_stock = 0
-        line_pred = 0
-        line_disp = 0
-
-        for d in items:
-            # Mapeo genérico de datos según el origen (Warehouse vs Linea vs Criticos)
-            if isinstance(d, (list, tuple)) and len(d) >= 6: # Formato Linea/Warehouse
-                sku, desc, unit, st, pre, disp = d[0], d[1], d[2], d[3], d[4], d[5]
-            else: # Fallback o formatos cortos
-                sku = d[0] if isinstance(d, (list, tuple)) else d.get("sku", "")
-                info = _sku_info(sku)
-                desc = d[1] if isinstance(d, (list, tuple)) else d.get("descripcion", "")
-                unit = info.get("sku_unit", "UND")
-                disp = d[3] if isinstance(d, (list, tuple)) and len(d) == 4 else (d[5] if isinstance(d, (list, tuple)) else 0)
-                st, pre = 0, 0
-
-            line_stock += st
-            line_pred += pre
-            line_disp += disp
-
-            un_bx = _sku_info(sku)["un_bx"]
-            dbx = disp // un_bx if un_bx > 0 else disp
-            
-            row_data = [sku, desc, unit, disp, dbx]
-            if include_details:
-                row_data.extend([st, pre])
-            
-            ws.append(row_data)
-            
-            # Formato Condicional en columna Disponible (Columna D / Index 4)
-            disp_cell = ws.cell(row=ws.max_row, column=4)
-            if disp <= 5:
-                disp_cell.fill = red_fill
-            elif disp <= 10:
-                disp_cell.fill = yellow_fill
-            else:
-                disp_cell.fill = green_fill
-
-        # Ajustar anchos
-        ws.column_dimensions['A'].width = 15
-        ws.column_dimensions['B'].width = 50
-        ws.column_dimensions['D'].width = 15
-
-        # Agregar al listado de resumen
-        ratio = (line_pred / line_stock * 100) if line_stock > 0 else 0
-        summary_stats.append([linea, len(items), line_stock, line_pred, line_disp, f"{ratio:.1f}%"])
-
-    if ws_resumen:
-        # Llenar Hoja de Resumen con los totales calculados
-        for row in summary_stats:
-            ws_resumen.append(row)
-            # Formato condicional básico para disponibilidad en resumen
-            disp_val = row[4]
-            cell_disp = ws_resumen.cell(row=ws_resumen.max_row, column=5)
-            if disp_val <= 50: # Umbral mayor por ser consolidado
-                cell_disp.fill = red_fill
-            elif disp_val <= 200:
-                cell_disp.fill = yellow_fill
-            else:
-                cell_disp.fill = green_fill
-                
-            # Alineación
-            for i in range(2, 7):
-                ws_resumen.cell(row=ws_resumen.max_row, column=i).alignment = Alignment(horizontal="right")
-
-        # Ajustar anchos en Resumen
-        ws_resumen.column_dimensions['A'].width = 30
-        ws_resumen.column_dimensions['C'].width = 15
-        ws_resumen.column_dimensions['D'].width = 15
-        ws_resumen.column_dimensions['E'].width = 15
-        ws_resumen.column_dimensions['F'].width = 15
+    if not sorted_lineas and not role_lines:
+        if ws_resumen is None:
+            ws_resumen = wb.active
+            ws_resumen.title = (title[:31] or "Datos")
+        _write_generic_table(ws_resumen, data_items, title, header_fill, white_font)
     else:
-        # Si no hubo resumen, la primera hoja creada (la primera línea) es la activa
+        if ws_resumen is None and "Sheet" in wb.sheetnames:
+            del wb["Sheet"]
         if wb.sheetnames:
             wb.active = 0
 
