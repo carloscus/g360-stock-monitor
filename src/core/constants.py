@@ -32,6 +32,14 @@ CACHE_FILE = DATA_DIR / ".last_raw.json"
 
 PRIMARY_CATEGORIES = {"VINIBALL", "VINIFAN", "REPRESENTADAS"}
 
+# Almacenes especiales tipo 118 (informativos) con prefijo S o código numérico conocido.
+# Se traen siempre como respaldo fuera de horario y se muestran con rol informativo.
+SPECIAL_FALLBACK_WAREHOUSES = {"118", "122"}
+
+# Patrón para detectar almacenes "informativos" por código.
+import re
+SPECIAL_WAREHOUSE_RE = re.compile(r"^(?:s\d+|118|122)$", re.IGNORECASE)
+
 
 def get_local_version() -> str:
     pyproject = BASE_DIR / "pyproject.toml"

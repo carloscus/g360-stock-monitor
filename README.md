@@ -61,6 +61,8 @@ Aplicación de escritorio que monitorea stock en tiempo real desde el ERP de CIP
 ## Características
 
 - **Dashboard general**: KPIs, warehouse cards, categorías, sidebar con search
+- **Búsqueda flotante**: modal contextual con resultados en vivo (debounce 250ms) al escribir en la barra; Enter abre el primer resultado; Escape o click fuera cierra
+- **Auto-limpieza al enfocar**: al hacer foco en la barra de búsqueda con texto previo, se limpia automáticamente para una nueva búsqueda rápida
 - **6 KPIs clickables**: Almacenes, SKUs, Disponible, Predespacho, Alertas, Críticos
 - **Tablas paginadas ordenables**: todos los modales con columnas tienen headers clicables con ciclo asc → desc → reset y encabezados alineados exactamente con los valores (mismo ancho)
 - **Indicador de sort**: dirección ▲/▼ y columna activa mostrada en el título del diálogo
@@ -70,6 +72,8 @@ Aplicación de escritorio que monitorea stock en tiempo real desde el ERP de CIP
 - **Warehouse cards**: 3 modos de display (DESAGREGADO, CONSOLIDADO, PCT)
 - **Categorías**: VINIBALL, VINIFAN, REPRESENTADAS con sus líneas
 - **Sidebar**: search, chips de almacén, SKUs sin categoría, settings
+- **Almacenes especiales automáticos**: los almacenes `s*` (s1, s13, etc.) se detectan y mapean dinámicamente con el mismo comportamiento que `118` (rol EXTERNO, informativo, sin control)
+- **Reintentos API**: hasta 3 intentos con backoff exponencial para despertar Render en llamadas fuera de horario
 - **Snapshot diff**: tendencia (up/down) vs snapshot anterior
 - **5 motores de lectura Excel**: openpyxl, xlrd, csv, html, xml
 - **Versión portable**: carpeta autónoma con launcher auto-instalable
@@ -241,6 +245,9 @@ g360-erp-stock-monitor/
 | **92** | INSPECCION | PCT | EXTERNO | No |
 | **106** | OUTLET | PCT | EXTERNO | No |
 | **122** | EXPORTACION | PCT | EXTERNO | No |
+| **s\*** | ALMACEN_S\* (auto) | PCT | EXTERNO | No |
+
+> Los almacenes `s1`, `s13`, `s2`, etc. que lleguen desde el API se configuran automáticamente con el mismo comportamiento que `118`: rol EXTERNO, tipo PCT, sin participación en control. No requieren entrada manual en `lineas.json`.
 
 ### Transferencias Sugeridas
 
@@ -377,6 +384,10 @@ g360-stock-monitor-portable\launch.vbs
 | Jul 2026 | Indicador ▲/▼ en el título del diálogo | Dirección de sort visible sin desalinear la tabla |
 | Jul 2026 | FilePicker registrado en `page.overlay` | `save_file()`/`pick_files()` fallan si el picker no está en el overlay |
 | Jul 2026 | Icono CIPSA oficial (`cipsa.ico`) | `build-portable.bat` y `create_shortcut.vbs` lo referenciaban sin existir |
+| Ago 2026 | Búsqueda flotante con debounce | Resultados en vivo sin rebuild del dashboard completo |
+| Ago 2026 | Auto-limpieza al enfocar búsqueda | Flet no expone `select_all()`; limpiar es el equivalente más ágil |
+| Ago 2026 | Reintentos API (3 intentos + backoff) | Despertar Render en llamadas fuera de horario |
+| Ago 2026 | Mapeo automático almacenes `s*` | Mismo comportamiento que 118 sin config manual |
 
 ---
 

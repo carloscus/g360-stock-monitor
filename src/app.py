@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 import traceback
 from datetime import datetime
@@ -33,29 +34,31 @@ def _log(msg: str):
         f.write(f"[{__import__('datetime').datetime.now():%H:%M:%S}] {msg}\n")
 
 
-def _load_cache() -> tuple[dict, str | None]:
-    """Carga el cache persistente de stock. Retorna (raw_data, timestamp_iso)."""
+def _load_cache() -> tuple[dict, str | None, str | None]:
+    """Carga el cache persistente. Retorna (raw_data, app_ts, api_ts)."""
     if not CACHE_FILE.exists():
-        return {}, None
+        return {}, None, None
     try:
         with open(CACHE_FILE, encoding="utf-8") as f:
             data = json.load(f)
         raw = data.get("raw_data", {})
         ts = data.get("timestamp")
+        api_ts = data.get("api_timestamp")
         if raw:
-            return raw, ts
+            return raw, ts, api_ts
     except Exception:
         pass
-    return {}, None
+    return {}, None, None
 
 
-def _save_cache(raw_data: dict[str, dict[str, dict]]):
-    """Guarda raw_data completo con timestamp ISO actual."""
+def _save_cache(raw_data: dict[str, dict[str, dict]], api_timestamp: str | None = None):
+    """Guarda raw_data completo con timestamp ISO actual y api_timestamp."""
     try:
         CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "raw_data": raw_data,
             "timestamp": datetime.now().isoformat(),
+            "api_timestamp": api_timestamp,
         }
         with open(CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
@@ -138,9 +141,12 @@ class StockMonitorApp:
                 self.dashboard.set_on_theme_toggle(self._toggle_theme)
             self.dashboard.set_on_refresh(self._on_refresh)
             self._cache_timestamp: str | None = None
+            self._api_timestamp: str | None = None
+            self._stale_data: bool = False
             self._local_version = get_local_version()
             self._update_info: dict | None = None
             self._last_auto_refresh: float = 0.0
+            self._auto_refresh_stop: threading.Event | None = None
             self._build()
         except Exception:
             _log(f"[FATAL] StockMonitorApp.__init__:\n{traceback.format_exc()}")
@@ -178,12 +184,13 @@ class StockMonitorApp:
         _log("_build: overlay (FilePickers) registrado")
 
         cache_path = Path(__file__).resolve().parent.parent / "assets" / "data" / "sample_data.json"
-        cache, ts = _load_cache()
+        cache, ts, api_ts = _load_cache()
         if cache:
             _log(f"_build: loading cached raw_data...")
             self._raw_data = cache
             self._cache_timestamp = ts
-            self.dashboard.update_data(cache, cache_timestamp=ts)
+            self._api_timestamp = api_ts
+            self.dashboard.update_data(cache, cache_timestamp=ts, api_timestamp=api_ts)
             self.page.update()
             _log("_build: cache loaded OK")
         elif cache_path.exists():
@@ -251,22 +258,37 @@ class StockMonitorApp:
 
     def _start_auto_refresh(self):
         try:
-            self._auto_refresh_interval_id = self.page.run_interval(
-                self._on_auto_refresh_tick,
-                60_000,
+            self._auto_refresh_stop = threading.Event()
+            t = threading.Thread(
+                target=self._auto_refresh_loop,
+                daemon=True,
+                name="auto-refresh",
             )
-            _log(f"_start_auto_refresh: intervalo iniciado ({AUTO_REFRESH_INTERVAL}s)")
+            t.start()
+            _log(f"_start_auto_refresh: hilo iniciado ({AUTO_REFRESH_INTERVAL}s)")
         except Exception as ex:
             _log(f"_start_auto_refresh: ERROR {ex}")
 
+    def _auto_refresh_loop(self):
+        while not self._auto_refresh_stop.is_set():
+            time.sleep(1)
+            try:
+                self._on_auto_refresh_tick()
+            except Exception as ex:
+                _log(f"_auto_refresh_loop: ERROR {ex}")
+
     def _on_auto_refresh_tick(self):
         try:
-            if self._raw_data:
-                if time.time() - self._last_auto_refresh < AUTO_REFRESH_INTERVAL:
-                    return
+            if not self._cache_timestamp:
+                return
+            self.dashboard._update_refresh_status(
+                self._cache_timestamp, self._api_timestamp, self._stale_data
+            )
+            if time.time() - self._last_auto_refresh < AUTO_REFRESH_INTERVAL:
+                return
             self._last_auto_refresh = time.time()
             _log("_on_auto_refresh_tick: ejecutando auto-refresh")
-            self.page.run_task(self._load_data(is_manual=False))
+            self.page.run_task(self._load_data, is_manual=False)
         except Exception as ex:
             _log(f"_on_auto_refresh_tick: ERROR {ex}")
 
@@ -295,11 +317,11 @@ class StockMonitorApp:
                 return
 
             self._raw_data = raw
-            _save_cache(raw)
+            _save_cache(raw, self._api_timestamp)
             self._cache_timestamp = datetime.now().isoformat()
             self._last_auto_refresh = time.time()
             _log("_load_data: cache saved")
-            self.dashboard.update_data(raw, cache_timestamp=self._cache_timestamp)
+            self.dashboard.update_data(raw, cache_timestamp=self._cache_timestamp, api_timestamp=self._api_timestamp, stale=self._stale_data)
             self.dashboard._hide_empty_state()
             _log("_load_data: data updated in dashboard")
             if is_manual:
@@ -319,33 +341,51 @@ class StockMonitorApp:
                 self.page.update()
                 import asyncio
                 await asyncio.sleep(2 - elapsed)
-            from datetime import datetime
             from src.core.processor import leer_ultima_actualizacion
             ts = leer_ultima_actualizacion() or datetime.now().strftime('%H:%M:%S')
             age = self.dashboard.format_cache_timestamp(self._cache_timestamp) if not is_manual else ""
             self.dashboard._ts_text.value = f"Ultima act. {ts}{age}"
-            self.dashboard._ts_text.color = self.dashboard.c["accent"]
-            self.dashboard._ts_badge.visible = True
-            self.dashboard.status_text.value = "Datos actualizados"
-            self.dashboard.status_text.color = self.dashboard.c["accent"]
+            if self._stale_data:
+                self.dashboard._ts_text.color = self.dashboard.c["warning"]
+                self.dashboard._ts_text.value += " (caché)"
+                self.dashboard.status_text.value = "Datos en caché (fuera de horario)"
+                self.dashboard.status_text.color = self.dashboard.c["warning"]
+                self.dashboard._show_stale_warning()
+            else:
+                self.dashboard._ts_text.color = self.dashboard.c["accent"]
+                self.dashboard.status_text.value = "Datos actualizados"
+                self.dashboard.status_text.color = self.dashboard.c["accent"]
+                self.dashboard._hide_stale_warning()
+            self.dashboard._update_refresh_status(self._cache_timestamp, self._stale_data)
             self.dashboard.set_loading(False)
             self.page.update()
             _log("_load_data: done")
 
     def _download_s1(self) -> dict | None:
+        from src.core.s1_downloader import download_source1, get_api_meta, get_api_timestamp
+        from src.core.constants import SPECIAL_WAREHOUSE_RE
         try:
-            from src.core.s1_downloader import download_source1
             _log("_download_s1: calling download_source1...")
             result = download_source1()
+            if not result:
+                _log("_download_s1: first attempt failed, retrying with special warehouses...")
+                result = download_source1(force_special=True)
             if result:
-                _log(f"_download_s1: API data OK, {len(result)} warehouses")
+                self._stale_data = get_api_meta().get("cache_expirado", False)
+                self._api_timestamp = get_api_timestamp()
+                _log(f"_download_s1: API data OK, {len(result)} warehouses, stale={self._stale_data}, api_ts={self._api_timestamp}")
                 return result
+            self._stale_data = False
+            self._api_timestamp = None
             _log("_download_s1: API returned None")
         except ImportError:
             _log("_download_s1: ImportError (s1_downloader)")
-            pass
+            self._stale_data = False
+            self._api_timestamp = None
         except Exception as ex:
             _log(f"_download_s1: Exception: {ex}")
+            self._stale_data = False
+            self._api_timestamp = None
             print(f"[S1] Error: {ex}")
 
         _log("_download_s1: no data available")
