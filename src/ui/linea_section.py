@@ -4,6 +4,19 @@ import flet as ft
 from src.config.theme import rgba
 from src.core.constants import PRIMARY_CATEGORIES
 
+
+def _expansion_tile(**kwargs):
+    """Wrapper compatible con diferentes versiones de Flet."""
+    try:
+        return ft.ExpansionTile(**kwargs)
+    except TypeError:
+        # Fallback: algunos Flet usan 'expanded' en vez de 'initially_expanded'
+        if 'initially_expanded' in kwargs:
+            kwargs['expanded'] = kwargs.pop('initially_expanded')
+        if 'collapsed_bgcolor' in kwargs and 'bgcolor' not in kwargs:
+            kwargs['bgcolor'] = kwargs['collapsed_bgcolor']
+        return ft.ExpansionTile(**kwargs)
+
 _CAT_ICONS = {
     "VINIBALL": ft.Icons.SPORTS_SOCCER,
     "VINIFAN": ft.Icons.COLORIZE,
@@ -96,7 +109,7 @@ class LineaSection:
         total_lines = sum(len(c[3]) for c in cats)
 
         return ft.Container(
-            content=ft.ExpansionTile(
+            content=_expansion_tile(
                 title=ft.Row([
                     ft.Container(
                         content=ft.Icon(ft.Icons.APPS, size=16, color="white"),
@@ -148,7 +161,7 @@ class LineaSection:
 
     def _sin_catalogo_section(self, sections: list[ft.Container]) -> ft.Container:
         return ft.Container(
-            content=ft.ExpansionTile(
+            content=_expansion_tile(
                 title=ft.Row([
                     ft.Container(
                         content=ft.Icon(ft.Icons.INVENTORY_2, size=16, color="white"),

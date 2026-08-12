@@ -77,10 +77,10 @@ class WarehouseCard:
                     ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     ft.Text(nombre_real, size=13, color=self.c["text_muted"], max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, tooltip=nombre_real),
                 ], spacing=3, expand=2),
-                
+
                 # 2. Métricas (Centro)
                 ft.Row(metrics_content, spacing=28, expand=4, alignment=ft.MainAxisAlignment.CENTER),
-                
+
                 # 3. Estado y Tendencia (Derecha)
                 ft.Row([
                     ft.Row([
@@ -98,6 +98,7 @@ class WarehouseCard:
             bgcolor=self.c["surface"],
             border_radius=10,
             border=ft.Border(bottom=ft.BorderSide(1, self.c["border"])),
+            tooltip="Ver detalle de SKUs",
             on_click=lambda _: self.on_click(d) if self.on_click else None,
             ink=True,
         )
@@ -122,3 +123,57 @@ class WarehouseCard:
             content=ft.Text(count, size=11, color="white", weight=ft.FontWeight.W_700),
             bgcolor=color, border_radius=6, padding=ft.Padding(left=8, right=8, top=3, bottom=3),
         )
+
+    def update_theme(self, colors: dict):
+        """Actualiza colores in-place sin reconstruir la card."""
+        self.c = colors
+        main = self._main_container
+        if not main:
+            return
+        main.bgcolor = colors["surface"]
+        main.border = ft.Border(bottom=ft.BorderSide(1, colors["border"]))
+        row = main.content
+        # Left: identity column
+        left_col = row.controls[0]
+        if isinstance(left_col, ft.Column):
+            id_row = left_col.controls[0]
+            if isinstance(id_row, ft.Row):
+                cod_text = id_row.controls[0]
+                if isinstance(cod_text, ft.Text):
+                    cod_text.color = colors["text_primary"]
+                badge = id_row.controls[1] if len(id_row.controls) > 1 else None
+                if isinstance(badge, ft.Container) and isinstance(badge.content, ft.Text):
+                    badge.bgcolor = colors["accent"] if badge.content.value == "PRINCIPAL" else (rgba(colors["info"], 0.9) if badge.content.value == "SECUNDARIO" else "transparent")
+            name_text = left_col.controls[1] if len(left_col.controls) > 1 else None
+            if isinstance(name_text, ft.Text):
+                name_text.color = colors["text_muted"]
+        # Middle: metrics
+        mid_row = row.controls[1]
+        if isinstance(mid_row, ft.Row):
+            for mc in mid_row.controls:
+                if isinstance(mc, ft.Column) and len(mc.controls) >= 2:
+                    mc.controls[0].color = colors["text_muted"]
+                elif isinstance(mc, ft.Container):
+                    inner = mc.content
+                    if isinstance(inner, ft.Column) and len(inner.controls) >= 2:
+                        inner.controls[0].color = colors["text_muted"]
+                        if len(inner.controls) > 2:
+                            pr = inner.controls[2].content
+                            if isinstance(pr, ft.ProgressBar):
+                                pr.color = colors["accent"]
+                                pr.bgcolor = rgba(colors["accent"], 0.12)
+        # Right: status + trend
+        right_col = row.controls[2]
+        if isinstance(right_col, ft.Row):
+            inner = right_col.controls
+            if len(inner) > 1 and isinstance(inner[1], ft.VerticalDivider):
+                inner[1].color = colors["border"]
+            if len(inner) > 2:
+                trend_col = inner[2]
+                if isinstance(trend_col, ft.Column):
+                    for tc in trend_col.controls:
+                        if isinstance(tc, ft.Icon):
+                            pass
+                        elif isinstance(tc, ft.Text):
+                            v = tc.value
+                            tc.color = colors["success"] if v.startswith("+") else (colors["error"] if v.endswith("%") and not v.startswith("+") else (colors["text_muted"] if v == "0%" else tc.color))

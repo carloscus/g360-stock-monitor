@@ -2,18 +2,9 @@
 setlocal
 cd /d "%~dp0"
 
-REM Check if Python venv exists
-if not exist ".venv\Scripts\python.exe" (
-    echo.
-    echo ========================================
-    echo  G360 Stock Monitor - Primera ejecucion
-    echo ========================================
-    echo.
-    echo Iniciando instalacion automatica...
-    echo.
-    call run.bat
-    exit /b
-)
-
-REM If venv exists, run minimized using PowerShell
-powershell -NoProfile -Command "Start-Process -FilePath '%~dp0.venv\Scripts\python.exe' -ArgumentList 'main.py' -WorkingDirectory '%~dp0' -WindowStyle Hidden"
+REM Always delegate to run.bat for proper error handling.
+REM run.bat has a quick-path: if .venv exists, skips all setup and launches
+REM directly with visible error messages on failure.
+REM If .venv doesn't exist, run.bat does full first-time setup with progress.
+call run.bat
+exit /b
