@@ -2756,6 +2756,18 @@ class Dashboard:
         except Exception:
             return str(ts)[:16]
 
+    def _get_api_cache_ttl(self) -> tuple[int, bool]:
+        """Retorna (ttl_min, cache_expirado) desde el API meta."""
+        try:
+            from src.core.s1_downloader import get_api_meta
+            meta = get_api_meta()
+            ttl_sec = meta.get("cache_expiro_en") or 900
+            expired = meta.get("cache_expirado", False)
+            return int(ttl_sec / 60), bool(expired)
+        except Exception:
+            from src.core.constants import AUTO_REFRESH_INTERVAL
+            return int(AUTO_REFRESH_INTERVAL / 60), False
+
     def _update_refresh_status(self, cache_timestamp: str | None, api_timestamp: str | None = None, stale: bool = False):
         if not self._refresh_status_badge:
             return
@@ -2779,7 +2791,9 @@ class Dashboard:
             return
 
         from src.core.constants import AUTO_REFRESH_INTERVAL
-        max_age = AUTO_REFRESH_INTERVAL / 60
+
+        # Get real API cache metadata
+        ttl_min, cache_expired = self._get_api_cache_ttl()
 
         age_min = cache_age_min
         if api_timestamp:
@@ -2792,40 +2806,49 @@ class Dashboard:
             except Exception:
                 pass
 
-        if stale or age_min > max_age * 2:
+        remaining = max(0, ttl_min - int(age_min))
+        is_fresh = age_min <= ttl_min * 0.5
+        is_warn = age_min > ttl_min and not stale
+        is_stale = stale or cache_expired or age_min > ttl_min * 2
+
+        if is_stale:
             dot.color = self.c["error"]
-            txt.value = f"{int(age_min)} m"
+            txt.value = f"{remaining} min"
             txt.color = self.c["error"]
             self._refresh_status_badge.bgcolor = rgba(self.c["error"], 0.08)
             self._refresh_status_badge.tooltip = (
-                f"Datos en caché hace {int(age_min)} min.\n"
+                f"CACHE EXPIRADO\n"
                 f"API: {self._format_ts_display(api_timestamp)}\n"
                 f"App: {self._format_ts_display(cache_timestamp)}\n"
-                f"Auto-refresh: {int(max_age)} min.\n"
+                f"Tiempo restante: {remaining} min\n"
+                f"Auto-refresh: cada {ttl_min} min\n"
                 f"Click para forzar actualización."
             )
-        elif age_min > max_age:
+        elif is_warn:
             dot.color = self.c["warning"]
-            txt.value = f"{int(age_min)} m"
+            txt.value = f"{remaining} min"
             txt.color = self.c["warning"]
             self._refresh_status_badge.bgcolor = rgba(self.c["warning"], 0.08)
             self._refresh_status_badge.tooltip = (
-                f"Datos en caché hace {int(age_min)} min.\n"
+                f"CACHE VENCIDO — esperando nuevo\n"
                 f"API: {self._format_ts_display(api_timestamp)}\n"
                 f"App: {self._format_ts_display(cache_timestamp)}\n"
-                f"Auto-refresh: {int(max_age)} min.\n"
+                f"Tiempo restante: {remaining} min\n"
+                f"Auto-refresh: cada {ttl_min} min\n"
                 f"Click para forzar actualización."
             )
         else:
             dot.color = self.c["success"]
-            txt.value = "OK"
+            txt.value = f"{remaining} min" if not is_fresh else "OK"
             txt.color = self.c["success"]
             self._refresh_status_badge.bgcolor = rgba(self.c["success"], 0.08)
+            status_label = "Fresco" if is_fresh else "Cache"
             self._refresh_status_badge.tooltip = (
-                f"Datos fresco ({int(age_min)} min).\n"
+                f"CACHE {status_label.upper()}\n"
                 f"API: {self._format_ts_display(api_timestamp)}\n"
                 f"App: {self._format_ts_display(cache_timestamp)}\n"
-                f"Auto-refresh: {int(max_age)} min.\n"
+                f"Tiempo restante: {remaining} min\n"
+                f"Auto-refresh: cada {ttl_min} min\n"
                 f"Click para forzar actualización."
             )
         self._refresh_status_badge.visible = True

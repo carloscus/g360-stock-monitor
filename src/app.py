@@ -432,7 +432,7 @@ class StockMonitorApp:
                 self.dashboard.status_text.value = "Datos actualizados"
                 self.dashboard.status_text.color = self.dashboard.c["accent"]
                 self.dashboard._hide_stale_warning()
-            self.dashboard._update_refresh_status(self._cache_timestamp, self._stale_data)
+            self.dashboard._update_refresh_status(self._cache_timestamp, self._api_timestamp, self._stale_data)
             self.dashboard.set_offline(False)
             self.dashboard.set_loading(False)
             self.page.update()
