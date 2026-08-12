@@ -399,6 +399,7 @@ g360-stock-monitor-portable\launch.vbs
 | Ago 2026 | Badge TTL dinámico del API | Lee `cache_expiro_en` (900s) y `cache_expirado` del API; muestra tiempo restante, estado del cache (activo/vencido/expirado) y colores según TTL real |
 | Ago 2026 | Umbral warn >= TTL | El badge cambia a amarillo cuando `age >= ttl` (no `> ttl`) para detectar expiración inmediata al cumplirse el TTL |
 | Ago 2026 | Fix import `get_api_sku_meta` | Se agregó al import en `app.py`; su ausencia causaba crash silencioso en el executor al hacer hash de metadata |
+| Ago 2026 | Comportamiento fuera de horario | API genera batches solo Lun-Sab 7:00-22:59 (Lima); fuera de horario sirve último cache con TTL 15 min; badge muestra stale cuando `cache_expirado=True` |
 
 ---
 
