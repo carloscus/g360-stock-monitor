@@ -39,9 +39,9 @@ def main(page: ft.Page):
 if __name__ == "__main__":
     _log("MAIN_START: __name__ == __main__")
     try:
-        _log("PRE: llamando a ft.run(main) desktop...")
-        ft.run(main, view=ft.AppView.FLET_APP)
-        _log("POST: ft.run(main) retorno OK")
+        _log("PRE: llamando a ft.app(main) desktop...")
+        ft.app(main, view=ft.AppView.FLET_APP)
+        _log("POST: ft.app(main) retorno OK")
     except Exception as e:
         _log(f"[FATAL] Error en ft.run:\n{traceback.format_exc()}")
         print(f"\n[FATAL] Error al iniciar la aplicacion: {e}", flush=True)
