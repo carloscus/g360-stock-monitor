@@ -2772,7 +2772,7 @@ class Dashboard:
         try:
             ts = datetime.fromisoformat(cache_timestamp)
             if ts.tzinfo is not None:
-                ts = ts.replace(tzinfo=None)
+                ts = ts.astimezone().replace(tzinfo=None)
             cache_age_min = (datetime.now() - ts).total_seconds() / 60
         except Exception:
             self._refresh_status_badge.visible = False
@@ -2786,7 +2786,7 @@ class Dashboard:
             try:
                 api_ts = datetime.fromisoformat(api_timestamp)
                 if api_ts.tzinfo is not None:
-                    api_ts = api_ts.replace(tzinfo=None)
+                    api_ts = api_ts.astimezone().replace(tzinfo=None)
                 api_age = (datetime.now() - api_ts).total_seconds() / 60
                 age_min = min(api_age, cache_age_min)
             except Exception:
