@@ -352,6 +352,7 @@ El proyecto incluye `g360-stock-monitor-portable/` para distribución a PCs sin 
 | `launch.vbs` | Lanzador minimizado (evita consola visible) |
 | `create_shortcut.vbs` | Acceso directo en escritorio con icono CIPSA |
 | `sync_portable.py` | Sincroniza `src/`, `assets/`, `README.md` y archivos raíz a `g360-stock-monitor-portable/` |
+| `build-zip.ps1` | Crea `g360-stock-monitor-portable.zip` (45 MB) para distribución |
 
 ### Flujo de desarrollo vs distribución
 
@@ -364,6 +365,8 @@ El proyecto incluye `g360-stock-monitor-portable/` para distribución a PCs sin 
 **Carpeta portable (versión distribución):**
 - Se genera con `python sync_portable.py`
 - Contiene TODO preinstalado: `.venv/`, `src/`, `assets/`, `run.bat`, `launch.vbs`
+- Se empaqueta con `powershell build-zip.ps1` → `g360-stock-monitor-portable.zip`
+- Se excluye del repositorio (`.gitignore` → `*.zip`, `*-portable/`)
 - No requiere internet ni permisos de instalación en PC destino
 - Solo incluye archivos necesarios para ejecutar (sin `uv.lock`, `sync_portable.py`, `skill.json`)
 
