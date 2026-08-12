@@ -36,6 +36,11 @@ run_log_full.txt
 run_log_stderr.txt
 *.zip
 
+# Runtime data (autogenerado)
+_snapshot_*.json
+.last_raw.json
+check_cache.py
+
 # G360 CLI generated assets
 g360/
 .kombai/
