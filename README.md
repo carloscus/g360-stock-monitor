@@ -9,7 +9,7 @@
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/carloscus/g360-erp-stock-monitor)
 [![Python](https://img.shields.io/badge/Python-3.11+-blue)](https://python.org)
-[![Flet](https://img.shields.io/badge/Flet-0.85-green)](https://flet.dev)
+[![Flet](https://img.shields.io/badge/Flet-0.86-green)](https://flet.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ¿Cómo está organizado el proyecto?
@@ -52,7 +52,7 @@ flowchart TD
 Aplicación de escritorio que monitorea stock en tiempo real desde el ERP de CIPSA (S1). Descarga datos JSON desde la API de S1, procesa datos por almacenes, líneas y categorías, y presenta un dashboard interactivo con KPIs, alertas y transferencias sugeridas.
 
 **Tipo**: Desktop App (Portable)
-**Framework**: Flet >=0.85 (Flutter-based Python)
+**Framework**: Flet >=0.86 (Flutter-based Python)
 **Plataforma**: Windows 10/11
 **Skill**: `cipsa` (marca CIPSA + signature "powered by G360")
 **Author**: g360-stock-monitor
@@ -86,7 +86,7 @@ Aplicación de escritorio que monitorea stock en tiempo real desde el ERP de CIP
 
 | Tecnología | Uso |
 |------------|-----|
-| `flet[desktop]>=0.85` | UI desktop (Flutter-based) |
+| `flet[desktop]>=0.86` | UI desktop (Flutter-based) |
 | `requests` | Descarga HTTP JSON desde API S1 |
 | `openpyxl` | Exportación de reportes Excel |
 | `uv` | Gestión de entornos virtuales + launcher auto-instalable |
