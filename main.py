@@ -43,7 +43,7 @@ if __name__ == "__main__":
         ft.run(main, view=ft.AppView.FLET_APP)
         _log("POST: ft.run(main) retorno OK")
     except Exception as e:
-        _log(f"[FATAL] Error en ft.app:\n{traceback.format_exc()}")
+        _log(f"[FATAL] Error en ft.run:\n{traceback.format_exc()}")
         print(f"\n[FATAL] Error al iniciar la aplicacion: {e}", flush=True)
         traceback.print_exc()
         input("\nPresione Enter para salir...")
