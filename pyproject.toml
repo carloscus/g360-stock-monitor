@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "G360 ERP Stock Monitor - Monitoreo de stock por almacenes y lineas"
 requires-python = ">=3.11"
 dependencies = [
-    "flet[desktop]==0.28.3",
+    "flet[desktop]>=0.85.0",
     "requests>=2.31.0",
     "openpyxl>=3.0.0",
 ]

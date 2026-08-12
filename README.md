@@ -9,7 +9,7 @@
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/carloscus/g360-erp-stock-monitor)
 [![Python](https://img.shields.io/badge/Python-3.11+-blue)](https://python.org)
-[![Flet](https://img.shields.io/badge/Flet-0.28.3-green)](https://flet.dev)
+[![Flet](https://img.shields.io/badge/Flet-0.85-green)](https://flet.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ¿Cómo está organizado el proyecto?
@@ -52,9 +52,10 @@ flowchart TD
 Aplicación de escritorio que monitorea stock en tiempo real desde el ERP de CIPSA (S1). Descarga datos JSON desde la API de S1, procesa datos por almacenes, líneas y categorías, y presenta un dashboard interactivo con KPIs, alertas y transferencias sugeridas.
 
 **Tipo**: Desktop App (Portable)
-**Framework**: Flet 0.28.3 (Flutter-based Python)
+**Framework**: Flet >=0.85 (Flutter-based Python)
 **Plataforma**: Windows 10/11
 **Skill**: `cipsa` (marca CIPSA + signature "powered by G360")
+**Author**: g360-stock-monitor
 
 ---
 
@@ -63,12 +64,13 @@ Aplicación de escritorio que monitorea stock en tiempo real desde el ERP de CIP
 - **Dashboard general**: KPIs, warehouse cards, categorías, sidebar con search
 - **Búsqueda flotante**: modal contextual con resultados en vivo (debounce 250ms) al escribir en la barra; Enter abre el primer resultado; Escape o click fuera cierra
 - **Auto-limpieza al enfocar**: al hacer foco en la barra de búsqueda con texto previo, se limpia automáticamente para una nueva búsqueda rápida
-- **6 KPIs clickables**: Almacenes, SKUs, Disponible, Predespacho, Alertas, Críticos
+- **8 KPIs clickables**: Almacenes, SKUs, Disponible, Predespacho, Sin Cat., Alertas, Críticos, Alto pred. — con glow backlight por color sólido
 - **Tablas paginadas ordenables**: todos los modales con columnas tienen headers clicables con ciclo asc → desc → reset y encabezados alineados exactamente con los valores (mismo ancho)
 - **Indicador de sort**: dirección ▲/▼ y columna activa mostrada en el título del diálogo
 - **Health filter**: filtro por salud (Crítico/Alerta/OK) usando umbrales por cajas
 - **Transferencias sugeridas**: detección automática de desbalance entre VES y secundarios, con sort propio en la sección
-- **Exportación Excel**: diálogo de configuración (básico/completo, resumen consolidado, filtro por almacén) con diálogo nativo de guardado
+- **Exportación Excel**: nombres con timestamp (`G360_{slug}_{YYYYMMDD}_{HHMMSS}.xlsx`), author `g360-stock-monitor`, resumen optimizado (4 cols), detalle con Estado (BUENO/ALERTA/CRITICO)
+- **Auto-refresh**: descarga cada 15 min; detecta cambios en metadata SKU (sin_catalogo, categoría) y reconstruye KPIs aunque raw data sea idéntico
 - **Warehouse cards**: 3 modos de display (DESAGREGADO, CONSOLIDADO, PCT)
 - **Categorías**: VINIBALL, VINIFAN, REPRESENTADAS con sus líneas
 - **Sidebar**: search, chips de almacén, SKUs sin categoría, settings
@@ -84,7 +86,7 @@ Aplicación de escritorio que monitorea stock en tiempo real desde el ERP de CIP
 
 | Tecnología | Uso |
 |------------|-----|
-| `flet[desktop]==0.28.3` | UI desktop (Flutter-based) |
+| `flet[desktop]>=0.85` | UI desktop (Flutter-based) |
 | `requests` | Descarga HTTP JSON desde API S1 |
 | `openpyxl` | Exportación de reportes Excel |
 | `uv` | Gestión de entornos virtuales + launcher auto-instalable |
@@ -124,8 +126,8 @@ Aplicación de escritorio que monitorea stock en tiempo real desde el ERP de CIP
 |------|---------|-----------------|
 | **Entry** | `main.py` | Boot, sys.path, `ft.app(main)` |
 | **App** | `src/app.py` | Page setup, ciclo de vida, orquestación download → update, registro de FilePickers en overlay |
-| **Core** | `src/core/s1_downloader.py` | HTTP GET a S1 API, parse JSON |
-| **Core** | `src/core/processor.py` | KPIs por almacén, líneas, categorías, transferencias, export a Excel |
+| **Core** | `src/core/s1_downloader.py` | HTTP GET a S1 API, parse JSON, populate SKU metadata (`sin_catalogo`, categoría, etc.) |
+| **Core** | `src/core/processor.py` | KPIs por almacén, líneas, categorías, transferencias, export a Excel (nombres con timestamp, author `g360-stock-monitor`) |
 | **UI** | `src/ui/dashboard.py` | Layout completo, sidebar, chips, KPIs, diálogos, sort, export |
 | **UI** | `src/ui/warehouse_card.py` | Card por almacén con display condicional |
 | **UI** | `src/ui/linea_section.py` | Categorías → líneas |
@@ -137,19 +139,19 @@ Aplicación de escritorio que monitorea stock en tiempo real desde el ERP de CIP
 S1 (HTTP) → JSON → s1_downloader (parse) → dict[str, dict[str, dict]]
                                      ↓
                              processor.py
-                           ├─ calcular_kpis_almacen(raw)
-                           ├─ obtener_metricas_lineas(kpis)
-                           ├─ obtener_metricas_categorias(kpis)
-                           ├─ contar_sin_linea(raw)
-                           └─ sugerir_transferencias(raw, config, search)
-                                     ↓
-                              dashboard.py
-                           ├─ _build_kpi_row() → 6 KPIs (modales ordenables)
-                           ├─ warehouse cards
-                           ├─ linea_section
-                           ├─ sidebar chips
-                           ├─ _transfer_section (sort propio)
-                           └─ _show_paginated_dlg (headers clicables)
+                            ├─ calcular_kpis_almacen(raw)
+                            ├─ obtener_metricas_lineas(kpis)
+                            ├─ obtener_metricas_categorias(kpis)
+                            ├─ contar_sin_linea(raw)
+                            └─ sugerir_transferencias(raw, config, search)
+                                      ↓
+                               dashboard.py
+                            ├─ _build_kpi_row() → 8 KPIs (glow backlight, cards simétricas)
+                            ├─ warehouse cards
+                            ├─ linea_section
+                            ├─ sidebar chips
+                            ├─ _transfer_section (sort propio)
+                            └─ _show_paginated_dlg (headers clicables, export con timestamp)
 ```
 
 ### Patrones
@@ -388,6 +390,9 @@ g360-stock-monitor-portable\launch.vbs
 | Ago 2026 | Auto-limpieza al enfocar búsqueda | Flet no expone `select_all()`; limpiar es el equivalente más ágil |
 | Ago 2026 | Reintentos API (3 intentos + backoff) | Despertar Render en llamadas fuera de horario |
 | Ago 2026 | Mapeo automático almacenes `s*` | Mismo comportamiento que 118 sin config manual |
+| Ago 2026 | Auto-refresh con metadata hash | Detecta cambios en sin_catalogo/categoría aunque raw data no varíe |
+| Ago 2026 | KPIs con glow backlight unificado | Todas las cards tienen el mismo tratamiento visual con color sólido |
+| Ago 2026 | Nombres de archivo Excel con timestamp | Formato `G360_{slug}_{YYYYMMDD}_{HHMMSS}.xlsx`, author `g360-stock-monitor` |
 
 ---
 
@@ -434,8 +439,8 @@ Este proyecto forma parte de la familia de microherramientas **G360** para apoyo
 
 **Marca**: G360 · **Isotipo**: 3 puntos verticales paralelos (gris-verde-gris) + chevron `>`
 **Signature**: powered by G360 · **Powered by**: [g360-signature](https://github.com/carloscus/g360-signature)
-**Autor**: Carlos Cusi
-**Desarrollo**: Con asistencia de herramientas de código IA (Vibe Code)
+- **Autor**: Carlos Cusi
+- **Desarrollo**: Con asistencia de herramientas de código IA (Vibe Code)
 
 ## Footer Signature
 

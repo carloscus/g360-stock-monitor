@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 import threading
 
@@ -15,6 +16,7 @@ from src.core.processor import (
     export_to_excel,
     _extract_report_skus,
     reload_catalogo,
+    _make_report_name,
     update_catalogo_sku,
     _sku_info,
 )
@@ -37,10 +39,6 @@ class Dashboard:
         self._theme_mode = theme_mode
         self.c = get_colors(self._theme_mode)
         self._search_timer = None
-        self._floating_search_timer = None
-        self._floating_search_modal = None
-        self._floating_search_backdrop = None
-        self._floating_search_results = None
         self._warehouse_cards: ft.Column | None = None
         self._cat_section: ft.Container | None = None
         self._kpi_row: ft.Row | None = None
@@ -53,7 +51,7 @@ class Dashboard:
         self._sin_cat_badge_text: ft.Text | None = None
         self._sin_cat_row: ft.Container | None = None
         self._search_field = ft.TextField(
-            hint_text="Buscar SKU, descripción, línea o categoría... (Enter)",
+            hint_text="Buscar SKU, descripción, línea o categoría…  (Enter ↵ · Esc)",
             border_radius=8,
             height=40,
             text_size=13,
@@ -62,7 +60,8 @@ class Dashboard:
             border_color=self.c["border"],
             focused_border_color=self.c["accent"],
             cursor_color=self.c["accent"],
-            hint_style=ft.TextStyle(size=13, color=self.c["text_muted"]),
+            hint_style=ft.TextStyle(size=12, color=self.c["text_muted"]),
+            suffix_icon=ft.Icon(ft.Icons.KEYBOARD_RETURN, size=16, color=rgba(self.c["text_muted"], 0.5)),
             on_change=lambda e: self._on_search_change(),
             on_submit=self._on_search_submit,
             on_focus=lambda e: self._on_search_focus(),
@@ -77,6 +76,7 @@ class Dashboard:
             ),
         )
         self._selected_alms: set[str] = set()
+        self._warehouse_group: str = "venta"  # "venta" | "mktd"
         self._transfer_section = ft.Container(visible=False)
         self._transfer_collapsed = False
         self._transfer_sort_key: str | None = None
@@ -89,6 +89,10 @@ class Dashboard:
         self._theme_button: ft.IconButton | None = None
         self._filtro_salud_row = ft.Container()
         self._build_filtro_salud()
+        # Pills de vista de almacenes
+        self._alm_view_pills = ft.Container()
+        self._build_alm_view_pills()
+        self._card_instances: list = []
         self._ts_text = ft.Text(
             "", size=11, color=self.c["text_muted"], weight=ft.FontWeight.W_500,
         )
@@ -195,7 +199,6 @@ class Dashboard:
 
     def register_overlay(self):
         self.page.overlay.extend([self._file_picker, self._catalog_picker])
-        self.page.on_keyboard_event = self._on_keyboard
         self.page.update()
 
     def _build_sidebar(self) -> ft.Container:
@@ -237,43 +240,15 @@ class Dashboard:
             style=ft.ButtonStyle(bgcolor={"hovered": rgba(self.c["accent"], 0.14)}),
         )
         self._footer_chip = ft.Container(
-            content=ft.Row([
-                self._theme_button,
-                ft.VerticalDivider(width=1, color=self.c["border"]),
-                self._config_button,
-            ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            bgcolor=rgba(self.c["surface_variant"], 0.7),
-            border_radius=8,
-            padding=ft.Padding(left=4, right=4, top=3, bottom=3),
-        )
-        
-        # Modal flotante para búsqueda rápida
-        self._floating_search_modal = ft.Container(
-            content=ft.Column([], spacing=0, scroll=ft.ScrollMode.AUTO),
-            visible=False,
-            width=320,
-            bgcolor=self.c["surface"],
-            border_radius=10,
-            border=ft.Border(
-                left=ft.BorderSide(1, self.c["border"]),
-                right=ft.BorderSide(1, self.c["border"]),
-                top=ft.BorderSide(1, self.c["border"]),
-                bottom=ft.BorderSide(1, self.c["border"]),
-            ),
-            shadow=ft.BoxShadow(
-                blur_radius=16,
-                color="rgba(0,0,0,0.25)" if self._theme_mode == "dark" else "rgba(15,23,42,0.15)",
-            ),
-            padding=ft.Padding(4, 4, 4, 4),
+                content=ft.Row([
+                    self._theme_button,
+                    ft.VerticalDivider(width=1, color=self.c["border"]),
+                    self._config_button,
+                ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                border_radius=8,
+                padding=ft.Padding(left=4, right=4, top=3, bottom=3),
         )
 
-        self._floating_search_backdrop = ft.Container(
-            visible=False,
-            expand=True,
-            bgcolor="transparent",
-            on_click=lambda e: self._hide_floating_results(),
-        )
-        
         # Construcción limpia del sidebar sin referencias a los pickers en los controls
         return ft.Container(
             content=ft.Stack([
@@ -292,7 +267,11 @@ class Dashboard:
                         padding=ft.Padding(left=8, right=8, top=14, bottom=8),
                     ),
                     ft.Container(
-                        content=ft.Text("ALMACENES", size=10, color=self.c["text_muted"], weight=ft.FontWeight.W_700),
+                        content=ft.Row([
+                            ft.Text("ALMACENES", size=10, color=self.c["text_muted"], weight=ft.FontWeight.W_700),
+                            ft.Container(expand=True),
+                            self._alm_view_pills,
+                        ], spacing=4),
                         padding=ft.Padding(left=12, right=12, top=6, bottom=4),
                     ),
                     self._sidebar_chips,
@@ -309,7 +288,6 @@ class Dashboard:
                         padding=ft.Padding(left=8, right=8, top=6, bottom=6),
                     ),
                 ], spacing=0),
-                self._floating_search_modal,
             ], expand=True),
             width=200,
             bgcolor=self.c["surface"],
@@ -338,7 +316,7 @@ class Dashboard:
     def _build_header(self):
         logo = ft.Image(
             src="assets/images/Logo_cipsa_solid.svg",
-            width=32, height=32, fit=ft.ImageFit.CONTAIN,
+            width=32, height=32,
         )
         self._ts_badge = ft.Container(
             content=ft.Row([
@@ -357,6 +335,7 @@ class Dashboard:
             visible=False,
             padding=ft.Padding(left=10, right=10, top=5, bottom=5),
             border_radius=8,
+            animate_opacity=200,
         )
         self._refresh_status_badge = ft.Container(
             content=ft.Row([
@@ -387,6 +366,17 @@ class Dashboard:
             border_radius=8,
             padding=ft.Padding(left=12, right=12, top=6, bottom=6),
         )
+        self._offline_badge = ft.Container(
+            visible=False,
+            content=ft.Row([
+                ft.Icon(ft.Icons.WIFI_OFF, size=14, color="white"),
+                ft.Text("Sin conexión", size=11, color="white", weight=ft.FontWeight.W_600),
+            ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor=self.c["error"],
+            border_radius=8,
+            padding=ft.Padding(left=10, right=10, top=5, bottom=5),
+            animate_opacity=200,
+        )
         return ft.Container(
             content=ft.Row([
                 logo,
@@ -396,6 +386,7 @@ class Dashboard:
                 self._update_banner,
                 self._ts_badge,
                 self._stale_badge,
+                self._offline_badge,
                 self._refresh_status_badge,
                 ft.ElevatedButton(
                     "Actualizar",
@@ -437,7 +428,7 @@ class Dashboard:
     def update_theme(self, theme_mode: str):
         self._theme_mode = theme_mode
         self.c = get_colors(theme_mode)
-        
+
         # Actualizar fondos principales
         if self._main_container:
             self._main_container.bgcolor = self.c["background"]
@@ -445,16 +436,16 @@ class Dashboard:
             self._main_content_area.bgcolor = self.c["background"]
         if self._body_listview:
             self._body_listview.bgcolor = self.c["background"]
-            
+
         # Actualizar Sidebar
         self._sidebar.bgcolor = self.c["surface"]
         self._sidebar.border = ft.Border(right=ft.BorderSide(1, self.c["border"]))
-        
+
         # Actualizar Header
         self._header.bgcolor = self.c["surface"]
         self._header.border = ft.Border(bottom=ft.BorderSide(1, self.c["border"]))
 
-        # Actualizar fila de KPIs (esto soluciona el fondo oscuro residual en tema claro)
+        # Actualizar fila de KPIs
         if self._kpi_row:
             self._kpi_row.bgcolor = self.c["surface"]
             self._kpi_row.border = ft.Border(bottom=ft.BorderSide(1, self.c["border"]))
@@ -462,7 +453,7 @@ class Dashboard:
         # Actualizar componentes de entrada
         self._search_field.border_color = self.c["border"]
         self._search_field.hint_style = ft.TextStyle(size=13, color=self.c["text_muted"])
-        
+
         # Actualizar iconos
         self._update_theme_button_icon()
         if self._config_button:
@@ -475,15 +466,17 @@ class Dashboard:
             is_mounted = getattr(self._signature, "_is_mounted", None)
             if is_mounted and is_mounted():
                 self._signature.update()
-        
-        # Actualizar texto de carga para contraste en tema claro
+
+        # Actualizar texto de carga
         if self._loading_bar and self._loading_bar.content:
             self._loading_bar.content.controls[1].color = self.c["text_primary"]
 
-        # Refrescar datos para re-renderizar cards con nuevos colores
-        if self._raw_data:
-            self._apply_filters()
-        else:
+        # Actualizar colores de tema sin reconstruir datos
+        try:
+            self._refresh_theme_colors()
+        except Exception as _e:
+            import traceback
+            traceback.print_exc()
             self.page.update()
 
     def _update_theme_button_icon(self):
@@ -521,7 +514,7 @@ class Dashboard:
     def _open_config(self, e):
         self._show_config_dialog()
 
-    def _build_config_warehouse_row(self, cod: str, cfg: dict) -> tuple[ft.Container, ft.TextField, ft.Dropdown]:
+    def _build_config_warehouse_row(self, cod: str, cfg: dict) -> tuple[ft.Container, ft.TextField, ft.Dropdown, ft.Dropdown]:
         prio = ft.TextField(
             value=str(cfg.get("prioridad", "")),
             width=50, height=36, text_size=12,
@@ -538,24 +531,37 @@ class Dashboard:
             dense=True,
             border_radius=8,
         )
+        # Dropdown para tipo de almacén (venta/mktd)
+        tipo_actual = cfg.get("tipo", "venta")
+        tipo_dropdown = ft.Dropdown(
+            value=tipo_actual,
+            options=[
+                ft.dropdown.Option("venta", "VENTA"),
+                ft.dropdown.Option("mktd", "MKTD"),
+            ],
+            width=90, text_size=11,
+            dense=True,
+            border_radius=8,
+        )
         tipo_color = {"DESAGREGADO": self.c["accent"], "CONSOLIDADO": self.c["info"], "PCT": self.c["violet"]}
         row = ft.Container(
             content=ft.Row([
                 ft.Text(cod, size=13, weight=ft.FontWeight.W_700, width=50, color=self.c["text_primary"]),
                 ft.Text(cfg.get("nombre", ""), size=11, color=self.c["text_muted"], expand=True),
                 ft.Container(
-                    content=ft.Text(cfg.get("tipo_reporte", ""), size=10, color="white", weight=ft.FontWeight.W_600), 
-                    bgcolor=tipo_color.get(cfg.get("tipo_reporte", ""), "#666"), 
+                    content=ft.Text(cfg.get("tipo_reporte", ""), size=10, color="white", weight=ft.FontWeight.W_600),
+                    bgcolor=tipo_color.get(cfg.get("tipo_reporte", ""), "#666"),
                     border_radius=5, padding=ft.Padding(left=6, right=6, top=2, bottom=2),
                     width=85, alignment=ft.alignment.center
                 ),
                 rol_dropdown,
+                tipo_dropdown,
                 prio,
             ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             padding=ft.Padding(left=4, right=4, top=6, bottom=6),
             border=ft.Border(bottom=ft.BorderSide(1, self.c["border"]))
         )
-        return row, prio, rol_dropdown
+        return row, prio, rol_dropdown, tipo_dropdown
 
     def _show_config_dialog(self):
         config = load_lineas()
@@ -563,6 +569,7 @@ class Dashboard:
         rows = []
         prio_entries = {}
         rol_entries = {}
+        tipo_entries = {}
 
         sort_order = {"PRINCIPAL": 0, "SECUNDARIO": 1, "EXTERNO": 2}
         sorted_codes = sorted(alm_config.keys(), key=lambda c: (sort_order.get(alm_config[c].get("rol", ""), 9), alm_config[c].get("prioridad", 99)))
@@ -573,6 +580,7 @@ class Dashboard:
                 ft.Text("Nombre Almacén", size=11, weight=ft.FontWeight.W_700, color=self.c["accent"], expand=True),
                 ft.Text("Reporte", size=11, weight=ft.FontWeight.W_700, color=self.c["accent"], width=85),
                 ft.Text("Rol Operativo", size=11, weight=ft.FontWeight.W_700, color=self.c["accent"], width=110),
+                ft.Text("Tipo", size=11, weight=ft.FontWeight.W_700, color=self.c["accent"], width=90),
                 ft.Text("Prio", size=11, weight=ft.FontWeight.W_700, color=self.c["accent"], width=50),
             ], spacing=8),
             bgcolor=rgba(self.c["accent"], 0.08), border_radius=6,
@@ -581,9 +589,10 @@ class Dashboard:
 
         for cod in sorted_codes:
             cfg = alm_config[cod]
-            row, prio, rol_dropdown = self._build_config_warehouse_row(cod, cfg)
+            row, prio, rol_dropdown, tipo_dropdown = self._build_config_warehouse_row(cod, cfg)
             prio_entries[cod] = prio
             rol_entries[cod] = rol_dropdown
+            tipo_entries[cod] = tipo_dropdown
             rows.append(row)
 
         def save(e):
@@ -591,6 +600,7 @@ class Dashboard:
                 try:
                     config["almacenes"][cod]["prioridad"] = int(prio_entries[cod].value.strip())
                     config["almacenes"][cod]["rol"] = rol_entries[cod].value
+                    config["almacenes"][cod]["tipo"] = tipo_entries[cod].value
                 except (ValueError, AttributeError, KeyError):
                     pass
             from src.core.constants import LINEAS_FILE
@@ -611,13 +621,21 @@ class Dashboard:
                 dest_path = DATA_DIR / "catalogo_productos.json"
                 with open(src_path, encoding="utf-8") as f:
                     test_data = json.load(f)
-                    if "productos" not in test_data:
-                        raise ValueError("El archivo no contiene la clave 'productos'")
+                if not isinstance(test_data, dict) or "productos" not in test_data:
+                    raise ValueError("El archivo debe ser un JSON con clave 'productos'")
+                productos = test_data["productos"]
+                if not isinstance(productos, list):
+                    raise ValueError("La clave 'productos' debe contener un array")
+                for p in productos[:5]:
+                    if not isinstance(p, dict) or "sku" not in p:
+                        raise ValueError("Cada producto debe ser un objeto con campo 'sku'")
                 shutil.copy(src_path, dest_path)
                 reload_catalogo()
                 self.page.close(dlg)
                 self._show_snack("Catálogo actualizado e importado con éxito")
                 self._apply_filters()
+            except ValueError as ex:
+                self._show_snack(f"Formato inválido: {ex}", is_error=True)
             except Exception as ex:
                 self._show_snack(f"Error al cargar catálogo: {ex}", is_error=True)
 
@@ -656,19 +674,41 @@ class Dashboard:
         )
         self.page.open(dlg)
 
-    def _sidebar_chip(self, cod: str, rol: str, selected: bool) -> ft.Container:
+    def _sidebar_chip(self, cod: str, rol: str, selected: bool, is_special: bool = False, alertas: int = 0, criticos: int = 0, is_mktd: bool = False) -> ft.Container:
         rol_color = {"PRINCIPAL": self.c["accent"], "SECUNDARIO": self.c["info"], "EXTERNO": self.c["text_muted"]}
         base = rol_color.get(rol, "#666")
+        extra = []
+        if is_special:
+            extra.append(ft.Icon(ft.Icons.INFO_OUTLINED, size=10, color=rgba(self.c["text_muted"], 0.5), tooltip="Almacén informativo (MKTD/S)"))
+        control_badge = None
+        if rol in ("PRINCIPAL", "SECUNDARIO") and (criticos > 0 or alertas > 0):
+            badge_text = ""
+            badge_color = self.c["text_muted"]
+            if criticos > 0:
+                badge_text = f"{criticos}!"
+                badge_color = self.c["error"]
+            elif alertas > 0:
+                badge_text = f"{alertas}⚠"
+                badge_color = self.c["warning"]
+            control_badge = ft.Container(
+                content=ft.Text(badge_text, size=9, color="white", weight=ft.FontWeight.W_700),
+                bgcolor=badge_color, border_radius=6,
+                padding=ft.Padding(left=4, right=4, top=2, bottom=2),
+            )
+        sel_border = ft.BorderSide(2, base) if selected else ft.BorderSide(0, "transparent")
         inner = ft.Container(
             content=ft.Row([
-                ft.Container(width=8, height=8, bgcolor=base if selected else rgba(base, 0.4), border_radius=4),
+                ft.Container(width=8, height=8, bgcolor=base if selected else rgba(base, 0.6), border_radius=4),
                 ft.Text(cod, size=12, weight=ft.FontWeight.W_600 if selected else ft.FontWeight.W_400, color=self.c["text_primary"] if selected else rgba(self.c["text_primary"], 0.5)),
                 ft.Container(expand=True),
+                *extra,
+                control_badge if control_badge else ft.Container(),
                 ft.Text(rol[:4], size=10, color=rgba(base, 0.6)),
-            ], spacing=6),
+            ], spacing=4),
             border_radius=6,
-            bgcolor=rgba(base, 0.08) if selected else "transparent",
-            padding=ft.Padding(left=10, right=10, top=5, bottom=5),
+            bgcolor=rgba(base, 0.2) if selected else rgba(base, 0.05),
+            border=ft.Border(left=sel_border),
+            padding=ft.Padding(left=8, right=10, top=5, bottom=5),
         )
         return ft.GestureDetector(
             content=inner,
@@ -703,16 +743,106 @@ class Dashboard:
         self._build_filtro_salud()
         self._apply_filters()
 
-    def _on_chip_toggle(self, cod: str):
-        if cod in self._selected_alms:
-            if len(self._selected_alms) > 1:
-                self._selected_alms.discard(cod)
+    def _is_venta(self, cod: str, alm_config: dict, raw_data: dict | None = None) -> bool:
+        """Un almacén es VENTA si su tipo_config dice 'venta' (configuración manual)."""
+        tipo_config = alm_config.get(cod, {}).get("tipo", "")
+        if tipo_config:
+            return tipo_config == "venta"
+        # Fallback a datos del API
+        raw = raw_data or self._raw_data or {}
+        if cod in raw:
+            primer_sku = next(iter(raw[cod].values()), None)
+            if primer_sku:
+                cat = primer_sku.get("almacen_categoria", "venta")
+                return cat == "venta"
+        return True
+
+    def _is_mktd(self, cod: str, alm_config: dict, raw_data: dict | None = None) -> bool:
+        """Un almacén es MKTD si su tipo_config dice 'mktd' o es un s* sin datos."""
+        tipo_config = alm_config.get(cod, {}).get("tipo", "")
+        if tipo_config:
+            return tipo_config == "mktd"
+        raw = raw_data or self._raw_data or {}
+        if cod in raw:
+            primer_sku = next(iter(raw[cod].values()), None)
+            if primer_sku:
+                cat = primer_sku.get("almacen_categoria", "mktd")
+                return cat == "mktd"
+        return bool(re.match(r"^s\d+$", cod, re.IGNORECASE))
+
+    def _build_alm_view_pills(self):
+        """Botón toggle VENTA / MKTD."""
+        label = "MKTD" if self._warehouse_group == "mktd" else "VENTA"
+        color = self.c["info"] if self._warehouse_group == "mktd" else self.c["accent"]
+        self._alm_view_pills.content = ft.GestureDetector(
+            content=ft.Text(label, size=9, weight=ft.FontWeight.W_700, color=color),
+            on_tap=lambda e: self._on_warehouse_group_change("mktd" if self._warehouse_group == "venta" else "venta"),
+            mouse_cursor=ft.MouseCursor.CLICK,
+        )
+
+    def _on_warehouse_group_change(self, group: str):
+        """Cambia entre 'venta' y 'mktd'. Mutuamente excluyente."""
+        self._warehouse_group = group
+        # Actualizar pills
+        self._build_alm_view_pills()
+        if self._alm_view_pills.content:
+            try:
+                self._alm_view_pills.content.update()
+            except Exception:
+                pass
+        raw = self._raw_data or {}
+        if not raw:
+            return
+        alm_config = self._get_alm_config(raw)
+        if group == "venta":
+            self._selected_alms = {c for c in raw.keys() if self._is_venta(c, alm_config, raw)}
         else:
-            self._selected_alms.add(cod)
+            self._selected_alms = {c for c in raw.keys() if self._is_mktd(c, alm_config, raw)}
+        self._apply_filters()
+
+    def _on_chip_toggle(self, cod: str):
+        raw = self._raw_data or {}
+        alm_config = self._get_alm_config(raw)
+        is_mktd_chip = self._is_mktd(cod, alm_config, raw)
+        if self._warehouse_group == "mktd" and is_mktd_chip:
+            # MKTD mode: toggle todo el grupo
+            mktd_codes = {c for c in raw.keys() if self._is_mktd(c, alm_config, raw)}
+            if mktd_codes.issubset(self._selected_alms):
+                self._selected_alms -= mktd_codes
+            else:
+                self._selected_alms |= mktd_codes
+        elif self._warehouse_group == "venta" and not is_mktd_chip:
+            # VENTA mode: toggle individual
+            if cod in self._selected_alms:
+                self._selected_alms.discard(cod)
+            else:
+                self._selected_alms.add(cod)
+        elif is_mktd_chip:
+            # En modo VENTA, clickear un chip MKTD → cambiar a modo MKTD
+            self._warehouse_group = "mktd"
+            mktd_codes = {c for c in raw.keys() if self._is_mktd(c, alm_config, raw)}
+            self._selected_alms = mktd_codes.copy()
+            self._build_alm_view_pills()
+            if self._alm_view_pills.content:
+                try:
+                    self._alm_view_pills.content.update()
+                except Exception:
+                    pass
+        else:
+            # En modo MKTD, clickear un chip VENTA → cambiar a modo VENTA
+            self._warehouse_group = "venta"
+            venta_codes = {c for c in raw.keys() if self._is_venta(c, alm_config, raw)}
+            self._selected_alms = venta_codes.copy()
+            self._build_alm_view_pills()
+            if self._alm_view_pills.content:
+                try:
+                    self._alm_view_pills.content.update()
+                except Exception:
+                    pass
         self._apply_filters()
 
     def _on_search_change(self):
-        """Actualiza el botón 'limpiar' al escribir. Dispara búsqueda flotante."""
+        """Actualiza el botón 'limpiar' y dispara búsqueda en vivo."""
         value = (self._search_field.value or "").strip()
         if hasattr(self._search_field, 'suffix') and self._search_field.suffix:
             self._search_field.suffix.visible = bool(value)
@@ -720,30 +850,12 @@ class Dashboard:
                 self._search_field.suffix.update()
             except Exception:
                 pass
-        
-        # Búsqueda flotante con debounce
-        if self._floating_search_timer:
-            self._floating_search_timer.cancel()
-            self._floating_search_timer = None
-        
-        self._floating_search_results = None
-        
-        if value:
-            self._floating_search_timer = threading.Timer(0.25, lambda: self._show_floating_search(value))
-            self._floating_search_timer.daemon = True
-            self._floating_search_timer.start()
-        else:
-            self._hide_floating_results()
+        self._on_search()
 
     def _on_search_focus(self, e=None):
-        """Al enfocar la barra de búsqueda, limpia el texto para una nueva búsqueda rápida."""
+        """Al enfocar la barra de búsqueda, selecciona el texto para facilitar la edición."""
         try:
             if self._search_field.value:
-                self._search_field.value = ""
-                if hasattr(self._search_field, 'suffix') and self._search_field.suffix:
-                    self._search_field.suffix.visible = False
-                self._hide_floating_results()
-                self._apply_filters()
                 self._search_field.update()
         except Exception:
             pass
@@ -761,14 +873,8 @@ class Dashboard:
         self._search_timer.start()
 
     def _on_search_submit(self, e):
-        self._hide_floating_results()
         value = (self._search_field.value or "").strip()
         if not value:
-            return
-        # Si el modal tenía resultados, seleccionar el primero
-        if hasattr(self, '_floating_search_results') and self._floating_search_results:
-            sku = self._floating_search_results[0][0]
-            self._show_sku_detail_modal(sku)
             return
         sku = value.replace("'", "").strip().upper()
         skus = self._get_all_skus()
@@ -954,149 +1060,7 @@ class Dashboard:
             pass
         self._search_field.focus()
 
-    def _get_floating_search_results(self, query: str) -> list:
-        """Búsqueda rápida para modal flotante: SKU, descripción, almacén."""
-        results = []
-        q = query.lower().strip()
-        if not q:
-            return results
-        raw = self._get_filtered_raw()
-        count = 0
-        for alm, skus in raw.items():
-            for sku, info in skus.items():
-                desc = (info.get("descripcion", "") or "").lower()
-                if q in sku.lower() or q in desc or q in alm.lower():
-                    stock = info.get("stock", 0)
-                    pred = info.get("predespacho", 0)
-                    disp = info.get("disponible", max(0, stock - pred))
-                    st = self._sku_state(sku, disp)
-                    results.append((sku, info.get("descripcion", ""), alm, stock, pred, disp, st))
-                    count += 1
-                    if count >= 8:
-                        return results
-        return results
-
-    def _populate_floating_modal(self, results: list):
-        if not self._floating_search_modal:
-            return
-        controls = []
-        for sku, desc, alm, stock, pred, disp, st in results:
-            item = ft.GestureDetector(
-                content=ft.Container(
-                    content=ft.Row([
-                        ft.Text(sku, size=11, weight=ft.FontWeight.W_600, width=70, font_family=NUM_FONT),
-                        ft.Text(desc, size=11, expand=True, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                        ft.Container(
-                            content=ft.Text(st["emoji"], size=12),
-                            tooltip=f"Salud: {st['nivel']}",
-                            width=24,
-                            alignment=ft.alignment.center,
-                        ),
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, spacing=8),
-                    padding=ft.Padding(left=8, right=8, top=6, bottom=6),
-                    bgcolor=rgba(self.c["accent"], 0.03),
-                    border_radius=6,
-                ),
-                on_tap=lambda e, s=sku: self._on_floating_select(s),
-                mouse_cursor=ft.MouseCursor.CLICK,
-            )
-            controls.append(item)
-        self._floating_search_modal.content.controls = controls
-
-    def _position_floating_modal(self):
-        if not self._floating_search_modal:
-            return
-        try:
-            if hasattr(self.page, 'get_control_rect'):
-                rect = self.page.get_control_rect(self._search_field)
-                x = rect.left - 4
-                y = rect.bottom + 2
-            else:
-                x = 8
-                y = 50
-            modal_w = 320
-            page_w = getattr(self.page, 'width', 800)
-            page_h = getattr(self.page, 'height', 600)
-            
-            if x + modal_w > page_w:
-                x = page_w - modal_w - 10
-            if x < 5:
-                x = 5
-            if y + 200 > page_h:
-                y = rect.top - 200
-            
-            self._floating_search_modal.left = x
-            self._floating_search_modal.top = y
-        except Exception:
-            self._floating_search_modal.left = 8
-            self._floating_search_modal.top = 50
-
-    def _show_floating_search(self, query: str):
-        if not self._raw_data or not self._floating_search_modal:
-            return
-        results = self._get_floating_search_results(query)
-        self._floating_search_results = results
-        if not results:
-            self._hide_floating_results()
-            return
-        self._populate_floating_modal(results)
-        self._position_floating_modal()
-        self._show_floating_modal()
-
-    def _show_floating_modal(self):
-        if not self._floating_search_modal:
-            return
-        self._floating_search_modal.visible = True
-        if self._floating_search_backdrop:
-            self._floating_search_backdrop.visible = True
-            try:
-                self._floating_search_backdrop.width = self.page.width
-                self._floating_search_backdrop.height = self.page.height
-                self._floating_search_backdrop.update()
-            except Exception:
-                pass
-        try:
-            self._floating_search_modal.update()
-        except Exception:
-            pass
-
-    def _hide_floating_results(self):
-        if self._floating_search_timer:
-            self._floating_search_timer.cancel()
-            self._floating_search_timer = None
-        self._floating_search_results = None
-        if self._floating_search_modal:
-            self._floating_search_modal.visible = False
-            try:
-                self._floating_search_modal.update()
-            except Exception:
-                pass
-        if self._floating_search_backdrop:
-            self._floating_search_backdrop.visible = False
-            try:
-                self._floating_search_backdrop.update()
-            except Exception:
-                pass
-
-    def _on_floating_select(self, sku: str):
-        self._hide_floating_results()
-        self._search_field.value = sku
-        if hasattr(self._search_field, 'suffix') and self._search_field.suffix:
-            self._search_field.suffix.visible = True
-            try:
-                self._search_field.suffix.update()
-            except Exception:
-                pass
-        self._show_sku_detail_modal(sku)
-
-    def _on_keyboard(self, e):
-        if not self._floating_search_modal or not self._floating_search_modal.visible:
-            return
-        if e.key == "Escape":
-            self._hide_floating_results()
-            self._search_field.focus()
-
-    def _show_sku_detail_modal(self, sku: str):
+    def _get_all_skus(self) -> set:
         raw = self._get_filtered_raw()
         alm_config = self._get_alm_config(raw)
 
@@ -1107,7 +1071,14 @@ class Dashboard:
         cat_info = _sku_info(sku)
         desc = ""
 
-        for alm_cod, skus_dict in raw.items():
+        # Mostrar filas ordenadas por rol (PRINCIPAL primero, luego SECUNDARIO, EXTERNO)
+        rol_order = {"PRINCIPAL": 0, "SECUNDARIO": 1, "EXTERNO": 2}
+        sorted_almacen = sorted(
+            raw.items(),
+            key=lambda x: rol_order.get(alm_config.get(x[0], {}).get("rol", "EXTERNO"), 9),
+        )
+
+        for alm_cod, skus_dict in sorted_almacen:
             if sku not in skus_dict:
                 continue
             info = skus_dict[sku]
@@ -1115,12 +1086,20 @@ class Dashboard:
             stock = info.get("stock", 0)
             pred = info.get("predespacho", 0)
             disp = info.get("disponible", max(0, stock - pred))
+            rol = alm_config.get(alm_cod, {}).get("rol", "EXTERNO")
+            rol_color = {"PRINCIPAL": self.c["accent"], "SECUNDARIO": self.c["info"], "EXTERNO": self.c["text_muted"]}
             rows.append(ft.Row([
                 ft.Text(alm_cod, size=12, weight=ft.FontWeight.W_600, width=50),
-                ft.Text(alm_config.get(alm_cod, {}).get("nombre", alm_cod) or alm_cod, size=12, expand=True),
+                ft.Text(alm_config.get(alm_cod, {}).get("nombre", alm_cod) or alm_cod, size=11, expand=True, color=self.c["text_muted"]),
                 ft.Text(f"{stock:,}", size=12, width=70, color=self.c["text_primary"], font_family=NUM_FONT, text_align=ft.TextAlign.RIGHT),
-                ft.Text(f"{pred:,}", size=12, width=70, color=self.c["warning"], font_family=NUM_FONT, text_align=ft.TextAlign.RIGHT),
+                ft.Text(f"{pred:,}", size=12, width=70, color=rgba(self.c["warning"], 0.8), font_family=NUM_FONT, text_align=ft.TextAlign.RIGHT),
                 ft.Text(f"{disp:,}", size=12, weight=ft.FontWeight.W_700, width=70, color=self.c["success"], font_family=NUM_FONT, text_align=ft.TextAlign.RIGHT),
+                ft.Container(
+                    content=ft.Text(rol[:4], size=9, color=rol_color.get(rol, "#666")),
+                    padding=ft.Padding(left=6, right=6, top=2, bottom=2),
+                    bgcolor=rgba(rol_color.get(rol, "#666"), 0.1),
+                    border_radius=4,
+                ),
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN))
             total_stock += stock
             total_disp += disp
@@ -1195,9 +1174,20 @@ class Dashboard:
         self.page.open(dlg)
 
     def _export_single_sku(self, sku: str, desc: str, raw: dict):
-        path = f"stock_{sku}.csv"
-        import csv as csv_mod
-        lines = ["sku,descripcion,almacen,stock,predespacho,disponible"]
+        from openpyxl import Workbook
+        from openpyxl.styles import PatternFill, Font, Alignment
+        from pathlib import Path
+        wb = Workbook()
+        ws = wb.active
+        ws.title = sku[:31]
+        headers = ["SKU", "Descripción", "Almacén", "Stock", "Predespacho", "Disponible"]
+        header_fill = PatternFill(start_color="10B981", end_color="10B981", fill_type="solid")
+        white_font = Font(color="FFFFFF", bold=True)
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = white_font
+            cell.alignment = Alignment(horizontal="center")
         for alm_cod, skus_dict in raw.items():
             if sku not in skus_dict:
                 continue
@@ -1205,12 +1195,18 @@ class Dashboard:
             stock = info.get("stock", 0)
             pred = info.get("predespacho", 0)
             disp = info.get("disponible", max(0, stock - pred))
-            lines.append(f'"{sku}","{desc}","{alm_cod}",{stock},{pred},{disp}')
-        with open(path, "w", encoding="utf-8-sig") as f:
-            f.write("\n".join(lines))
+            ws.append([sku, desc or "", alm_cod, stock, pred, disp])
+        ws.column_dimensions["A"].width = 15
+        ws.column_dimensions["B"].width = 40
+        ws.column_dimensions["C"].width = 12
+        for col in "DEF":
+            ws.column_dimensions[col].width = 12
         import os
+        default_name = f"{_make_report_name(f'sku_{sku}')}.xlsx"
+        path = str(DATA_DIR / default_name)
+        wb.save(path)
+        self._show_snack(f"Exportado: {default_name}")
         os.startfile(path)
-        self._show_snack(f"Exportado: {path}")
 
     def _show_empty_state(self, message: str = "Sin datos disponibles"):
         if not self._empty_state:
@@ -1225,7 +1221,7 @@ class Dashboard:
         self._transfer_section.visible = False
         if self._sidebar_chips:
             self._sidebar_chips.controls = []
-        self.page.update()
+        # No calling page.update() here - let the caller handle the final update
 
     def _clear_empty_state(self):
         if not self._empty_state:
@@ -1233,7 +1229,7 @@ class Dashboard:
         self._empty_state.visible = False
         self._warehouse_cards.visible = True
         self._body_divider.visible = True
-        self.page.update()
+        # No calling page.update() here - let the caller handle the final update
 
     def _set_empty_state_status(self, text: str, color: str):
         if not self._empty_state or len(self._empty_state.content.controls) < 4:
@@ -1248,19 +1244,24 @@ class Dashboard:
         self._clear_empty_state()
 
     def _get_alm_config(self, raw_data: dict | None = None) -> dict:
-        """Config de almacenes enriqueciendo dinámicamente los s* (s1, s13, etc.)
-        con el mismo comportamiento que el almacén 118 (informativo/EXTERNO)."""
+        """Config de almacenes enriqueciendo dinámicamente los s* (s1, s13, etc.)."""
         config = load_lineas()
         alm_config = dict(config.get("almacenes", {}))
         raw = raw_data if raw_data is not None else (self._raw_data or {})
         for cod in raw.keys():
             if SPECIAL_WAREHOUSE_RE.match(cod) and cod not in alm_config:
+                # Obtener nombre del primer SKU disponible en este almacén
+                primer_sku = next(iter(raw[cod].values()), None)
+                nombre = ""
+                if primer_sku:
+                    nombre = primer_sku.get("nombre_almacen", "") or ""
                 alm_config[cod] = {
-                    "nombre": f"ALMACEN_{cod.upper()}",
+                    "nombre": nombre if nombre else f"MKTD {cod}",
                     "prioridad": 9,
                     "tipo_reporte": "PCT",
                     "rol": "EXTERNO",
                     "participa_control": False,
+                    "tipo": "mktd",  # s* son siempre mktd
                 }
         return alm_config
 
@@ -1293,7 +1294,12 @@ class Dashboard:
     def _apply_filters(self):
         if not self._raw_data:
             return
-        raw = self._get_filtered_raw()
+        search = (self._search_field.value or "").strip().lower()
+        if search:
+            # Búsqueda independiente: muestra todos los almacenes
+            raw = self._raw_data
+        else:
+            raw = self._get_filtered_raw()
         try:
             raw = self._filter_by_health(raw)
         except Exception:
@@ -1319,6 +1325,10 @@ class Dashboard:
         search_raw = raw
         transfers = sugerir_transferencias(search_raw, alm_config, umbral=5, search=search)
         self._build_transfer_section(transfers, bool(transfers), search)
+        try:
+            self.page.update()
+        except Exception:
+            pass
 
     def _apply_search_filter(self, raw: dict) -> dict:
         search = (self._search_field.value or "").strip().lower()
@@ -1366,13 +1376,18 @@ class Dashboard:
     def _rebuild_warehouse_cards(self, raw: dict, alm_config: dict):
         if not self._kpis_alm:
             self._warehouse_cards.controls = []
+            self._card_instances = []
             return
         sorted_alms = sorted(self._kpis_alm.values(), key=lambda a: alm_config.get(a["codigo"], {}).get("prioridad", 99))
         cards = []
+        self._card_instances = []
         for alm in sorted_alms:
             cfg = alm_config.get(alm["codigo"], {})
             card = WarehouseCard(alm, cfg, self.c, on_click=self._show_warehouse_skus)
-            cards.append(card.build())
+            container = card.build()
+            card._main_container = container
+            self._card_instances.append(card)
+            cards.append(container)
         self._warehouse_cards.controls = cards
 
     def _rebuild_categoria_section(self, raw: dict):
@@ -1394,17 +1409,142 @@ class Dashboard:
             cfg = alm_config.get(cod, {})
             selected = cod in self._selected_alms
             rol = cfg.get("rol", "")
+            is_special = bool(SPECIAL_WAREHOUSE_RE.match(cod))
+            alertas = self._kpis_alm.get(cod, {}).get("alertas", 0) if self._kpis_alm else 0
+            criticos = self._kpis_alm.get(cod, {}).get("criticos", 0) if self._kpis_alm else 0
+            is_mktd_chip = self._is_mktd(cod, alm_config)
+            if (self._warehouse_group == "venta" and is_mktd_chip) or \
+               (self._warehouse_group == "mktd" and not is_mktd_chip):
+                gd.visible = False
+            else:
+                gd.visible = True
+            new_chip = self._sidebar_chip(cod, rol, selected, is_special=is_special,
+                                          alertas=alertas, criticos=criticos)
+            self._chip_refs[cod] = new_chip
+        self._sidebar_chips.controls = list(self._chip_refs.values())
+
+    def _refresh_theme_colors(self):
+        """Actualiza colores de todos los componentes visuales sin recalcular datos."""
+        raw = self._raw_data or {}
+        alm_config = self._get_alm_config(raw)
+
+        # Chips del sidebar
+        self._refresh_chip_colors()
+        self._refresh_chip_visibility()
+
+        # Pills VENTA/MKTD
+        if self._alm_view_pills and self._alm_view_pills.content:
+            self._alm_view_pills.content.content.color = self.c["info"] if self._warehouse_group == "mktd" else self.c["accent"]
+            try:
+                self._alm_view_pills.content.update()
+            except Exception:
+                pass
+
+        # Filtro salud
+        if self._filtro_salud_row and self._filtro_salud_row.content:
+            self._build_filtro_salud()
+            try:
+                self._filtro_salud_row.update()
+            except Exception:
+                pass
+
+        # Cards de almacenes (solo reconstruye visuales, no datos)
+        if self._warehouse_cards and self._kpis_alm:
+            for card in self._card_instances:
+                card.update_theme(self.c)
+
+        # Sección categoría/líneas (solo reconstruye visuales, usa datos cached)
+        if self._cat_section and self._kpis_alm and hasattr(self, '_lineas') and self._lineas:
+            linea_section = LineaSection(self._lineas, self._categorias, self.c,
+                                         on_linea_click=self._show_linea_skus,
+                                         filtro_salud=self._filtro_salud,
+                                         lineas_sin_catalogo=self._lineas_sin_catalogo,
+                                         categorias_sin_catalogo=self._categorias_sin_catalogo)
+            self._cat_section.content = linea_section.build()
+            self._cat_section.visible = len(self._categorias) > 0 or len(self._categorias_sin_catalogo) > 0
+
+        # KPI row
+        if self._kpi_row and self._kpis_alm:
+            total_disp = sum(a["disponible_total"] for a in self._kpis_alm.values())
+            total_pre = sum(a["predespacho_total"] for a in self._kpis_alm.values())
+            total_alertas = sum(a["alertas"] for a in self._kpis_alm.values())
+            total_criticos = sum(a["criticos"] for a in self._kpis_alm.values())
+            total_alto_stock = sum(a.get("alto_stock", 0) for a in self._kpis_alm.values())
+            total_skus = sum(a["sku_count"] for a in self._kpis_alm.values())
+            total_sin_catalogo = sum(a.get("sin_catalogo_count", 0) for a in self._kpis_alm.values())
+            kpis = {
+                "almacenes": len(self._kpis_alm), "skus": total_skus,
+                "disponible": total_disp, "predespacho": total_pre,
+                "alertas": total_alertas, "criticos": total_criticos,
+                "alto_stock": total_alto_stock, "sin_catalogo": total_sin_catalogo,
+            }
+            self._kpi_row.content = self._build_kpi_row(kpis).content
+            self._kpis_data = kpis
+
+        # Transfer section (rebuild with new colors if visible)
+        if self._transfer_section.visible:
+            self._refresh_transfer_section()
+
+        try:
+            self.page.update()
+        except Exception:
+            pass
+
+    def _refresh_transfer_section(self):
+        """Reconstruye sección de transferencias con colores del tema actual."""
+        if not self._raw_data:
+            return
+        search = (self._search_field.value or "").strip().lower()
+        raw = self._raw_data if search else self._get_filtered_raw()
+        alm_config = self._get_alm_config(raw)
+        transfers = sugerir_transferencias(raw, alm_config, umbral=5, search=search)
+        self._build_transfer_section(transfers, bool(transfers), bool(search))
+
+    def _refresh_chip_colors(self):
+        """Actualiza colores de chips existentes sin reconstruir datos."""
+        raw = self._raw_data or {}
+        alm_config = self._get_alm_config(raw)
+        for cod, gd in self._chip_refs.items():
+            cfg = alm_config.get(cod, {})
+            rol = cfg.get("rol", "")
+            selected = cod in self._selected_alms
+            is_special = bool(SPECIAL_WAREHOUSE_RE.match(cod))
             rol_color = {"PRINCIPAL": self.c["accent"], "SECUNDARIO": self.c["info"], "EXTERNO": self.c["text_muted"]}
             base = rol_color.get(rol, "#666")
             inner = gd.content
-            inner.bgcolor = rgba(base, 0.08) if selected else "transparent"
+            sel_border = ft.BorderSide(2, base) if selected else ft.BorderSide(0, "transparent")
+            inner.bgcolor = rgba(base, 0.2) if selected else rgba(base, 0.05)
+            inner.border = ft.Border(left=sel_border)
             row = inner.content
-            if row and len(row.controls) >= 3:
-                dot = row.controls[0]
-                dot.bgcolor = base if selected else rgba(base, 0.4)
-                txt = row.controls[1]
-                txt.color = self.c["text_primary"] if selected else rgba(self.c["text_primary"], 0.5)
-                txt.weight = ft.FontWeight.W_600 if selected else ft.FontWeight.W_400
+            for j, ctrl in enumerate(row.controls):
+                if j == 0:
+                    ctrl.bgcolor = base if selected else rgba(base, 0.6)
+                elif j == 1:
+                    ctrl.color = self.c["text_primary"] if selected else rgba(self.c["text_primary"], 0.5)
+                elif j == len(row.controls) - 1:
+                    ctrl.color = rgba(base, 0.6)
+            # Update special icon
+            if is_special and len(row.controls) > 2:
+                for ctrl in row.controls[2:]:
+                    if isinstance(ctrl, ft.Icon) and ctrl.tooltip and "MKTD" in ctrl.tooltip:
+                        ctrl.color = rgba(self.c["text_muted"], 0.5)
+            if hasattr(gd, 'content') and isinstance(gd.content, ft.Container):
+                try:
+                    gd.content.update()
+                except Exception:
+                    pass
+
+    def _refresh_chip_visibility(self):
+        """Ocultar/mostrar chips según el grupo activo."""
+        raw = self._raw_data or {}
+        alm_config = self._get_alm_config(raw)
+        for cod, gd in self._chip_refs.items():
+            is_mktd_chip = self._is_mktd(cod, alm_config)
+            if (self._warehouse_group == "venta" and is_mktd_chip) or \
+               (self._warehouse_group == "mktd" and not is_mktd_chip):
+                gd.visible = False
+            else:
+                gd.visible = True
 
     def _update_sin_linea_footer(self, sin_linea: int):
         self._sin_cat_count = sin_linea
@@ -1418,6 +1558,7 @@ class Dashboard:
         self._warehouse_cards.visible = False
         self._body_divider.visible = False
         self._cat_section.visible = False
+        self._transfer_section.visible = False
         self._empty_state.content = self._build_empty_state(search)
         self._empty_state.visible = True
         self.page.update()
@@ -1427,7 +1568,8 @@ class Dashboard:
         self._body_divider.visible = not visible
         self._cat_section.visible = not visible
         self._empty_state.visible = visible
-        self.page.update()
+        if visible:
+            self._transfer_section.visible = False
 
     _TRANSFER_SORT = {
         "SKU": lambda t: t.get("sku", ""),
@@ -1524,9 +1666,14 @@ class Dashboard:
             key_fn = (self._TRANSFER_SORT_SUG if not search else self._TRANSFER_SORT).get(self._transfer_sort_key)
             if key_fn:
                 transfers = sorted(transfers, key=key_fn, reverse=self._transfer_sort_rev)
+        # No transfers and not in search mode → hide completely
         if not has_transfers and not search:
             self._transfer_section.visible = False
             return
+
+        # Auto-expandir cuando hay transferencias nuevas
+        if not self._transfer_collapsed and has_transfers and not search:
+            self._transfer_collapsed = False
 
         if search:
             t_rows, count_txt, title = self._build_search_transfer_rows(transfers)
@@ -1536,14 +1683,14 @@ class Dashboard:
         empty_note = ft.Container(height=0) if has_transfers else (
             ft.Container(
                 content=ft.Row([
-                    ft.Icon(ft.Icons.INFO_OUTLINE, size=12, color=self.c["text_muted"]),
-                    ft.Text("No hay SKUs con stock bajo en almacén principal que tengan stock en secundarios", size=10, color=self.c["text_muted"]),
+                    ft.Icon(ft.Icons.SEARCH_OFF, size=12, color=self.c["text_muted"]),
+                    ft.Text(f"'{self._search_field.value}' no encontrado", size=10, color=self.c["text_muted"]),
                 ], spacing=4),
                 margin=ft.Margin(top=4, bottom=0, left=0, right=0),
             ) if search else ft.Container(
                 content=ft.Row([
-                    ft.Icon(ft.Icons.SEARCH_OFF, size=12, color=self.c["text_muted"]),
-                    ft.Text(f"'{self._search_field.value}' no encontrado", size=10, color=self.c["text_muted"]),
+                    ft.Icon(ft.Icons.INFO_OUTLINE, size=12, color=self.c["text_muted"]),
+                    ft.Text("No hay SKUs con stock bajo en almacén principal que tengan stock en secundarios", size=10, color=self.c["text_muted"]),
                 ], spacing=4),
                 margin=ft.Margin(top=4, bottom=0, left=0, right=0),
             )
@@ -1587,51 +1734,66 @@ class Dashboard:
         status_parts = f"Datos actualizados — {len(self._kpis_alm)} almacenes, {len(self._categorias)} categorías, {len(self._lineas)} líneas"
         self.status_text.value = f"{status_parts}{sin_linea_txt}{search_txt}"
         self.status_text.color = self.c["accent"]
-        self.page.update()
 
     def _build_kpi_row(self, kpis: dict) -> ft.Container:
         if not kpis:
             kpis = {"almacenes": 0, "skus": 0, "sin_catalogo": 0, "alertas": 0, "criticos": 0, "alto_stock": 0, "disponible": 0, "predespacho": 0}
-        row1 = ft.Row(spacing=10, controls=[
-            self._clickable_kpi("Almacenes", str(kpis.get("almacenes", 0)), ft.Icons.WAREHOUSE, self.c["accent"], self._show_almacenes_dlg),
-            self._clickable_kpi("SKUs", f"{kpis.get('skus', 0):,}", ft.Icons.INVENTORY_2, self.c["info"], self._show_skus_dlg),
-            self._clickable_kpi("Disponible", f"{kpis.get('disponible', 0):,}", ft.Icons.CHECK_CIRCLE, self.c["success"], self._show_disp_dlg),
-            self._clickable_kpi("Predespacho", f"{kpis.get('predespacho', 0):,}", ft.Icons.CALL_MADE, self.c["warning"], self._show_pred_dlg),
-        ])
-        row2 = ft.Row(spacing=10, controls=[
-            self._clickable_kpi("Sin Cat.", str(kpis.get("sin_catalogo", 0)), ft.Icons.HELP_OUTLINE, self.c["warning"], self._show_sin_catalogo_dlg),
-            self._clickable_kpi("Alertas", str(kpis.get("alertas", 0)), ft.Icons.WARNING_AMBER, self.c["warning"], self._show_alertas_dlg),
-            self._clickable_kpi("Críticos", str(kpis.get("criticos", 0)), ft.Icons.ERROR_OUTLINE, self.c["error"], self._show_criticos_dlg),
-            self._clickable_kpi("Alto predespacho", str(kpis.get("alto_stock", 0)), ft.Icons.TRENDING_UP, self.c["orange"], self._show_alto_predespacho_dlg),
-        ])
-        return ft.Container(
-            content=ft.Column([row1, row2], spacing=10),
-            padding=ft.Padding(left=20, right=20, top=14, bottom=14),
-            bgcolor=self.c["surface"], border=ft.Border(bottom=ft.BorderSide(1, self.c["border"])),
-        )
+        self._kpis_data = kpis
+        kc = self.c.get("kpis", {})
+        col = self.c
 
-    def _clickable_kpi(self, label: str, value: str, icon: str, color: str, on_click) -> ft.Container:
-        inner = ft.Container(
-            content=ft.Row([
-                ft.Icon(icon, size=16, color="white"),
-                ft.Column([
-                    ft.Text(value, size=16, weight=ft.FontWeight.W_800, color=self.c["text_primary"]),
-                    ft.Text(label, size=10, color=self.c["text_muted"], weight=ft.FontWeight.W_500),
-                ], spacing=0, expand=True),
-            ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            bgcolor=self.c["surface"],
-            border_radius=10,
-            border=ft.Border(top=ft.BorderSide(1, rgba(color, 0.18)), right=ft.BorderSide(1, rgba(color, 0.18)), bottom=ft.BorderSide(1, rgba(color, 0.18)), left=ft.BorderSide(1, rgba(color, 0.18))),
-            padding=ft.Padding(left=12, right=14, top=10, bottom=10),
-            ink=True,
-            tooltip=f"Ver detalle de {label.lower()}",
+        def card(label, value, icon, color, on_click, alert_when=False):
+            return ft.Container(
+                content=ft.GestureDetector(
+                    content=ft.Row([
+                        ft.Container(width=4, height=32, bgcolor=color, border_radius=2),
+                        ft.Column([
+                            ft.Text(f"{value:,}" if isinstance(value, int) else str(value),
+                                    size=18, weight=ft.FontWeight.W_700, color=col["text_primary"]),
+                            ft.Row([
+                                ft.Icon(icon, size=10, color=color),
+                                ft.Text(label, size=10, color=col["text_muted"], weight=ft.FontWeight.W_500),
+                            ], spacing=4),
+                        ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.START, expand=True),
+                    ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    on_tap=lambda e: self._handle_kpi_click(on_click),
+                    mouse_cursor=ft.MouseCursor.CLICK,
+                ),
+                bgcolor=col["surface_variant"],
+                border_radius=10,
+                shadow=ft.BoxShadow(blur_radius=10, color=color, offset=ft.Offset(0, 0), spread_radius=2),
+                padding=ft.Padding(left=10, right=14, top=10, bottom=10),
+                expand=True,
+            )
+
+        row1 = [
+            card("Almacenes", kpis.get("almacenes", 0), ft.Icons.WAREHOUSE, kc.get("almacenes", col["cyan"]), self._show_almacenes_dlg),
+            card("SKUs", kpis.get("skus", 0), ft.Icons.INVENTORY_2, kc.get("skus", col["violet"]), self._show_skus_dlg),
+            card("Disponible", kpis.get("disponible", 0), ft.Icons.CHECK_CIRCLE, kc.get("disponible", col["cyan"]), self._show_disp_dlg,
+                 alert_when=kpis.get("disponible", 0) < 100),
+            card("Predespacho", kpis.get("predespacho", 0), ft.Icons.CALL_MADE, kc.get("predespacho", col["info"]), self._show_pred_dlg,
+                 alert_when=kpis.get("predespacho", 0) > 1000),
+        ]
+        row2 = [
+            card("Sin Cat.", kpis.get("sin_catalogo", 0), ft.Icons.HELP_OUTLINE, kc.get("sin_catalogo", col["pink"]), self._show_sin_catalogo_dlg,
+                 alert_when=kpis.get("sin_catalogo", 0) > 0),
+            card("Alertas", kpis.get("alertas", 0), ft.Icons.WARNING_AMBER, kc.get("alertas", col["warning"]), self._show_alertas_dlg,
+                 alert_when=kpis.get("alertas", 0) > 0),
+            card("Críticos", kpis.get("criticos", 0), ft.Icons.ERROR_OUTLINE, kc.get("criticos", col["error"]), self._show_criticos_dlg,
+                 alert_when=kpis.get("criticos", 0) > 0),
+            card("Alto pred.", kpis.get("alto_stock", 0), ft.Icons.TRENDING_UP, kc.get("alto_stock", col["orange"]), self._show_alto_predespacho_dlg,
+                 alert_when=kpis.get("alto_stock", 0) > 0),
+        ]
+        self._kpi_row_bg = ft.Container(
+            content=ft.Column([
+                ft.Row(row1, spacing=10, height=60, alignment=ft.MainAxisAlignment.CENTER),
+                ft.Row(row2, spacing=10, height=60, alignment=ft.MainAxisAlignment.CENTER),
+            ], spacing=10),
+            padding=ft.Padding(left=20, right=20, top=12, bottom=12),
+            bgcolor=col["surface"],
+            border=ft.Border(bottom=ft.BorderSide(1, col["border"])),
         )
-        wrapper = ft.GestureDetector(
-            content=inner,
-            on_tap=lambda e: self._handle_kpi_click(on_click),
-            mouse_cursor=ft.MouseCursor.CLICK,
-        )
-        return ft.Container(content=wrapper, padding=6, expand=True, bgcolor=self.c["surface"])
+        return self._kpi_row_bg
 
     def _show_snack(self, msg: str, is_error: bool = False):
         self.page.snack_bar = ft.SnackBar(
@@ -1933,7 +2095,19 @@ class Dashboard:
             ))
 
         pagination_row = ft.Container(
-            content=ft.Row(pagination, spacing=nav_spacing, alignment=ft.MainAxisAlignment.CENTER),
+            content=ft.Row([
+                *pagination,
+                ft.Container(height=8),
+                ft.Text("Pág.", size=11, color=self.c["text_muted"]),
+                ft.Container(
+                    content=ft.Text(f"{page + 1} / {total_pages}", size=12,
+                                    weight=ft.FontWeight.W_700, color=self.c["accent"],
+                                    font_family=NUM_FONT),
+                    padding=ft.Padding(left=6, right=6, top=4, bottom=4),
+                    bgcolor=rgba(self.c["accent"], 0.08),
+                    border_radius=6,
+                ),
+            ], spacing=nav_spacing, alignment=ft.MainAxisAlignment.CENTER),
             padding=ft.Padding(left=8, right=8, top=8, bottom=6),
         )
         return pagination_row
@@ -2499,30 +2673,62 @@ class Dashboard:
         self._update_refresh_status(cache_timestamp, api_timestamp, stale)
         alm_config = self._get_alm_config(raw_data)
 
-        previous_selected = set(self._selected_alms or [])
-        self._selected_alms = set()
-        for cod in raw_data.keys():
-            if cod in previous_selected:
-                self._selected_alms.add(cod)
-        if not self._selected_alms:
-            for cod, cfg in alm_config.items():
-                if cod in raw_data and cfg.get("rol", "") in ("PRINCIPAL", "SECUNDARIO"):
-                    self._selected_alms.add(cod)
-        if not self._selected_alms:
-            self._selected_alms = set(raw_data.keys())
+        # Default selection based on API category data
+        venta_codes = {c for c in raw_data.keys() if self._is_venta(c, alm_config, raw_data)}
+        mktd_codes = {c for c in raw_data.keys() if self._is_mktd(c, alm_config, raw_data)}
+        self._selected_alms = venta_codes.copy()
+        self._warehouse_group = "venta"
 
         sort_order = {"PRINCIPAL": 0, "SECUNDARIO": 1, "EXTERNO": 2}
         sorted_codes = sorted(raw_data.keys(), key=lambda c: (sort_order.get(alm_config.get(c, {}).get("rol", ""), 9), alm_config.get(c, {}).get("prioridad", 99)))
-        chips = []
+
+        # Separar en dos grupos
+        venta_chips: list[ft.Container] = []
+        mktd_chips: list[ft.Container] = []
         self._chip_refs: dict[str, ft.GestureDetector] = {}
+        kpis = getattr(self, "_kpis_alm", None) or {}
         for cod in sorted_codes:
             rol = alm_config.get(cod, {}).get("rol", "")
+            is_special = bool(SPECIAL_WAREHOUSE_RE.match(cod))
             selected = cod in self._selected_alms
-            chip = self._sidebar_chip(cod, rol, selected)
+            alertas = kpis.get(cod, {}).get("alertas", 0)
+            criticos = kpis.get(cod, {}).get("criticos", 0)
+            is_mktd = self._is_mktd(cod, alm_config)
+            chip = self._sidebar_chip(cod, rol, selected, is_special=is_special,
+                                      alertas=alertas, criticos=criticos, is_mktd=is_mktd)
             self._chip_refs[cod] = chip
-            chips.append(chip)
-        self._sidebar_chips.controls = chips
+            if is_mktd:
+                mktd_chips.append(chip)
+            else:
+                venta_chips.append(chip)
+
+        # Construir columna de chips con separadores de sección
+        chips_section = []
+        if self._warehouse_group != "mktd":
+            chips_section.append(ft.Container(
+                content=ft.Text("VENTA", size=9, weight=ft.FontWeight.W_700, color=self.c["accent"]),
+                padding=ft.Padding(left=12, right=12, top=8, bottom=2),
+            ))
+            chips_section.extend(venta_chips)
+        if mktd_chips and self._warehouse_group != "venta":
+            if chips_section:
+                chips_section.append(ft.Divider(height=1, color=rgba(self.c["border"], 0.5)))
+            chips_section.append(ft.Container(
+                content=ft.Text("MKTD", size=9, weight=ft.FontWeight.W_700, color=self.c["info"]),
+                padding=ft.Padding(left=12, right=12, top=4, bottom=2),
+            ))
+            chips_section.extend(mktd_chips)
+
+        self._sidebar_chips.controls = chips_section
         self._apply_filters()
+
+    def set_offline(self, offline: bool):
+        self._offline_badge.visible = offline
+        if offline:
+            self._offline_badge.opacity = 0
+            self._offline_badge.update()
+            self._offline_badge.opacity = 1
+        self.page.update()
 
     def _set_refreshing(self, refreshing: bool):
         self._refreshing = refreshing
@@ -2719,7 +2925,7 @@ class Dashboard:
 
             self.page.close(dlg)
             self._file_picker.on_result = on_result
-            self._file_picker.save_file(file_name=f"{title.replace(' ', '_')}.xlsx")
+            self._file_picker.save_file(file_name=f"{_make_report_name(title)}.xlsx")
 
         content_cols = []
         if has_skus:

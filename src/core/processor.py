@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment
@@ -10,31 +11,63 @@ from src.core.constants import LINEAS_FILE, DATA_DIR, PRIMARY_CATEGORIES
 from src.core.s1_downloader import get_api_sku_meta
 
 
-_CATALOGO: list[dict] | None = None
+APP_AUTHOR = "g360-stock-monitor"
+APP_NAME = "G360"
+
+
+def _make_report_name(title: str) -> str:
+    """Genera nombre de archivo con timestamp: G360_{slug}_{YYYYMMDD}_{HHMMSS}.xlsx"""
+    now = datetime.now()
+    ts = now.strftime("%Y%m%d_%H%M%S")
+    slug = re.sub(r"[^a-zA-Z0-9]+", "_", title).strip("_").upper()
+    if len(slug) > 40:
+        slug = slug[:40]
+    if not slug:
+        slug = "REPORTE"
+    return f"{APP_NAME}_{slug}_{ts}"
+
+
+_CATLOGO: list[dict] | None = None
+_SKU_INDEX: dict[str, dict] | None = None
+
+
+def _build_sku_index() -> dict[str, dict]:
+    """Construye un diccionario SKU → entry para búsquedas O(1)."""
+    global _SKU_INDEX
+    if _SKU_INDEX is not None:
+        return _SKU_INDEX
+    _SKU_INDEX = {}
+    for p in _load_catalogo():
+        sku = str(p.get("sku", "")).strip()
+        if sku:
+            _SKU_INDEX[sku] = p
+    return _SKU_INDEX
 
 
 def _load_catalogo() -> list[dict]:
-    global _CATALOGO
-    if _CATALOGO is not None:
-        return _CATALOGO
+    global _CATLOGO
+    if _CATLOGO is not None:
+        return _CATLOGO
     path = DATA_DIR / "catalogo_productos.json"
     if not path.exists():
-        _CATALOGO = []
-        return _CATALOGO
+        _CATLOGO = []
+        return _CATLOGO
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
-    _CATALOGO = data.get("productos", [])
-    return _CATALOGO
+    _CATLOGO = data.get("productos", [])
+    return _CATLOGO
 
 def reload_catalogo():
-    """Limpia la caché del catálogo para forzar una recarga desde disco."""
-    global _CATALOGO
-    _CATALOGO = None
+    """Limpia la caché del catálogo y el índice para forzar recarga."""
+    global _CATLOGO, _SKU_INDEX
+    _CATLOGO = None
+    _SKU_INDEX = None
     _load_catalogo()
+    _build_sku_index()
 
 def update_catalogo_sku(sku: str, descripcion: str = "", linea: str = "", categoria: str = ""):
     """Agrega o actualiza un SKU en catalogo_productos.json y recarga la caché."""
-    global _CATALOGO
+    global _CATLOGO, _SKU_INDEX
     path = DATA_DIR / "catalogo_productos.json"
     data = {"productos": []}
     if path.exists():
@@ -43,7 +76,7 @@ def update_catalogo_sku(sku: str, descripcion: str = "", linea: str = "", catego
     productos = data.get("productos", [])
     found = None
     for p in productos:
-        if p["sku"] == sku:
+        if str(p.get("sku", "")).strip() == str(sku).strip():
             found = p
             break
     if found:
@@ -65,47 +98,39 @@ def update_catalogo_sku(sku: str, descripcion: str = "", linea: str = "", catego
     data["productos"] = productos
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    _CATALOGO = None
+    _CATLOGO = None
+    _SKU_INDEX = None
     _load_catalogo()
+    _build_sku_index()
 
 def _sku_info(sku: str) -> dict:
+    """Usa metadata del API como fuente de verdad. Catálogo local solo como respaldo para info/reportes."""
     meta = get_api_sku_meta().get(sku)
-    catalogo_entry = None
-    for p in _load_catalogo():
-        if p["sku"] == sku:
-            catalogo_entry = p
-            break
-
     if meta is not None:
-        if catalogo_entry:
-            api_orden = meta.get("orden")
-            indice = api_orden if api_orden and api_orden > 0 else catalogo_entry.get("orden", 9999)
-        else:
-            indice = 9999
-
         return {
-            "linea": meta.get("linea") or (catalogo_entry.get("linea") if catalogo_entry else ""),
-            "linea_nombre": meta.get("linea_nombre") or (catalogo_entry.get("linea_nombre") if catalogo_entry else ""),
+            "linea": meta.get("linea", ""),
+            "linea_nombre": meta.get("linea_nombre", ""),
             "categoria": meta.get("categoria", ""),
-            "un_bx": meta.get("un_bx", catalogo_entry.get("un_bx", 1) if catalogo_entry else 1),
-            "precio_lista": meta.get("precio_lista", catalogo_entry.get("precio_lista", 0) if catalogo_entry else 0),
+            "un_bx": meta.get("un_bx", 1),
+            "precio_lista": meta.get("precio_lista", 0),
             "sin_catalogo": meta.get("sin_catalogo", False),
             "estado_linea": meta.get("estado_linea", ""),
-            "indice": indice,
+            "indice": meta.get("orden", 9999),
         }
-
-    if catalogo_entry:
+    # Fallback solo para info/reportes: busca en catálogo local
+    idx = _build_sku_index()
+    cat_entry = idx.get(sku)
+    if cat_entry:
         return {
-            "linea": catalogo_entry.get("linea", ""),
+            "linea": cat_entry.get("linea", ""),
             "linea_nombre": "",
-            "categoria": catalogo_entry.get("categoria", ""),
-            "un_bx": catalogo_entry.get("un_bx", 1),
-            "precio_lista": catalogo_entry.get("precio_lista", 0),
+            "categoria": cat_entry.get("categoria", ""),
+            "un_bx": cat_entry.get("un_bx", 1),
+            "precio_lista": cat_entry.get("precio_lista", 0),
             "sin_catalogo": False,
             "estado_linea": "",
-            "indice": catalogo_entry.get("orden", 9999),
+            "indice": cat_entry.get("orden", 9999),
         }
-
     return {"linea": "", "linea_nombre": "", "categoria": "OTROS", "un_bx": 1, "precio_lista": 0, "sin_catalogo": False, "estado_linea": "", "indice": 9999}
 
 
@@ -661,7 +686,7 @@ def _line_qc_stock(sku: str, raw: dict, alm_config: dict, scope: str) -> int:
 
 
 def _write_role_resumen(ws, role_lines: dict, header_fill, white_font, red_fill, yellow_fill, green_fill):
-    headers = ["Línea", "VES", "QC", "Sec.", "Ext.", "Disp. Total", "% Pred.", "Salud"]
+    headers = ["Línea", "SKUs", "Disponible", "Estado"]
     ws.append(headers)
     for cell in ws[1]:
         cell.fill = header_fill
@@ -672,43 +697,34 @@ def _write_role_resumen(ws, role_lines: dict, header_fill, white_font, red_fill,
 
     for linea, e in lines:
         disp_total = e["ves"] + e["sec"] + e["ext"]
-        ratio = (e["pred"] / e["stock"] * 100) if e["stock"] > 0 else 0.0
-        ws.append([e["nombre"], e["ves"], e["qc"], e["sec"], e["ext"],
-                   disp_total, f"{ratio:.1f}%", e["salud"]])
+        salud = e["salud"]
+        ws.append([e["nombre"], len(e["skus"]), disp_total, salud])
         r = ws.max_row
-        salud_cell = ws.cell(row=r, column=8)
-        if e["salud"] == "CRITICO":
-            salud_cell.fill = red_fill
-        elif e["salud"] == "ALERTA":
-            salud_cell.fill = yellow_fill
+        estado_cell = ws.cell(row=r, column=4)
+        if salud == "CRITICO":
+            estado_cell.fill = red_fill
+        elif salud == "ALERTA":
+            estado_cell.fill = yellow_fill
         else:
-            salud_cell.fill = green_fill
-        disp_cell = ws.cell(row=r, column=6)
-        if disp_total <= 50:
-            disp_cell.fill = red_fill
-        elif disp_total <= 200:
-            disp_cell.fill = yellow_fill
-        else:
-            disp_cell.fill = green_fill
-        for i in range(2, 8):
-            ws.cell(row=r, column=i).alignment = Alignment(horizontal="right")
-        ws.cell(row=r, column=8).alignment = Alignment(horizontal="center")
+            estado_cell.fill = green_fill
+        ws.cell(row=r, column=3).alignment = Alignment(horizontal="right")
+        ws.cell(row=r, column=4).alignment = Alignment(horizontal="center")
 
     ws.column_dimensions['A'].width = 30
-    for col in "BCDEF":
-        ws.column_dimensions[col].width = 14
-    ws.column_dimensions['G'].width = 12
-    ws.column_dimensions['H'].width = 12
+    ws.column_dimensions['B'].width = 10
+    ws.column_dimensions['C'].width = 15
+    ws.column_dimensions['D'].width = 12
 
 
 def _write_classic_resumen(ws, grouped_data: dict, header_fill, white_font, red_fill, yellow_fill, green_fill):
-    ws.append(["Línea", "SKUs", "Stock Total", "Predespacho", "Disponible", "% Predespacho"])
+    ws.append(["Línea", "SKUs", "Disponible", "Estado"])
     for cell in ws[1]:
         cell.fill = header_fill
         cell.font = white_font
         cell.alignment = Alignment(horizontal="center")
     for linea, items in grouped_data.items():
         st = pre = disp = 0
+        sku_count = len(items)
         for d in items:
             f = _row_fields(d)
             if f is None:
@@ -716,29 +732,47 @@ def _write_classic_resumen(ws, grouped_data: dict, header_fill, white_font, red_
             st += f["st"]
             pre += f["pre"]
             disp += f["disp"]
-        ratio = (pre / st * 100) if st > 0 else 0
-        ws.append([linea, len(items), st, pre, disp, f"{ratio:.1f}%"])
-        cell_disp = ws.cell(row=ws.max_row, column=5)
-        if disp <= 50:
-            cell_disp.fill = red_fill
-        elif disp <= 200:
-            cell_disp.fill = yellow_fill
+        sm = 0
+        for it in items:
+            rf = _row_fields(it)
+            if rf:
+                cat = _sku_info(rf["sku"])
+                sm = cat.get("stock_minimo", 0) or 0
+                break
+        if sm > 0 and disp < sm:
+            estado = "CRITICO"
+        elif sm > 0 and disp < sm * 2:
+            estado = "ALERTA"
         else:
-            cell_disp.fill = green_fill
-        for i in range(2, 7):
-            ws.cell(row=ws.max_row, column=i).alignment = Alignment(horizontal="right")
+            estado = "BUENO"
+        ws.append([linea, sku_count, disp, estado])
+        r = ws.max_row
+        est_cell = ws.cell(row=r, column=4)
+        if estado == "CRITICO":
+            est_cell.fill = red_fill
+        elif estado == "ALERTA":
+            est_cell.fill = yellow_fill
+        else:
+            est_cell.fill = green_fill
+        ws.cell(row=r, column=3).alignment = Alignment(horizontal="right")
+        ws.cell(row=r, column=4).alignment = Alignment(horizontal="center")
     ws.column_dimensions['A'].width = 30
+    ws.column_dimensions['B'].width = 10
     ws.column_dimensions['C'].width = 15
-    ws.column_dimensions['D'].width = 15
-    ws.column_dimensions['E'].width = 15
-    ws.column_dimensions['F'].width = 15
+    ws.column_dimensions['D'].width = 12
 
 
 _AGG_HEADERS = {
-    "Almacenes": ["Cód", "Stock", "Pred.", "Disp.", "Alertas", "Críticos"],
+    "Almacenes": ["Código", "Stock", "Pred.", "Disp.", "Alertas", "Críticos"],
     "SKUs por Categoría": ["Categoría", "SKUs", "Disp."],
     "Disponible por Línea": ["Línea", "Disponible", "Stock", "SKUs"],
-    "Predespacho por Línea": ["Línea", "Predespacho", "Stock", "SKUs"],
+    "Predespacho por Línea": ["Línea", "Pred.", "Stock", "SKUs"],
+    "Productos en Alerta": ["SKU", "Descripción", "Disp.", "Almacén"],
+    "SKUs sin Catálogo": ["SKU", "Descripción", "Disp."],
+    "Productos Críticos": ["SKU", "Descripción", "Disp.", "Mínimo"],
+    "SKUs alto predespacho": ["SKU", "Descripción", "Disp.", "Ratio"],
+    "Transferencias Sugeridas": ["SKU", "Descripción", "Principal", "Secundario", "Sugerencia"],
+    "SKUs por Almacén": ["SKU", "Descripción", "Almacén", "Disp."],
 }
 
 
@@ -784,12 +818,10 @@ def _group_data_by_linea(data_items: list, real_skus: set) -> dict[str, list]:
 def _write_linea_sheet(ws, items: list, role_line: dict | None, include_details: bool,
                         header_fill, white_font, red_fill, yellow_fill, green_fill,
                         raw: dict | None, alm_config: dict | None, scope: str):
-    show_qc = bool(role_line and role_line["qc"] > 0)
-    headers = ["SKU", "Descripción", "Und", "Disponible (UND)", "Disponible (BX)"]
-    if show_qc:
-        headers.append("QC (Stock)")
+    headers = ["SKU", "Descripción", "Categoría", "Stock", "Disponible"]
     if include_details:
-        headers.extend(["Stock Total", "Predespacho"])
+        headers.append("Predespacho")
+    headers.append("Estado")
     ws.append(headers)
     for cell in ws[1]:
         cell.fill = header_fill
@@ -800,25 +832,39 @@ def _write_linea_sheet(ws, items: list, role_line: dict | None, include_details:
         f = _row_fields(d)
         if f is None:
             continue
-        un_bx = _sku_info(f["sku"])["un_bx"]
-        dbx = f["disp"] // un_bx if un_bx > 0 else f["disp"]
-        row_data = [f["sku"], f["desc"], f["unit"], f["disp"], dbx]
-        if show_qc:
-            row_data.append(_line_qc_stock(f["sku"], raw, alm_config, scope))
-        if include_details:
-            row_data.extend([f["st"], f["pre"]])
-        ws.append(row_data)
-        disp_cell = ws.cell(row=ws.max_row, column=4)
-        if f["disp"] <= 5:
-            disp_cell.fill = red_fill
-        elif f["disp"] <= 10:
-            disp_cell.fill = yellow_fill
+        cat = _sku_info(f["sku"])
+        disp = f["disp"]
+        sm = cat.get("stock_minimo", 0) or 0
+        if sm > 0 and disp < sm:
+            estado = "CRITICO"
+        elif sm > 0 and disp < sm * 2:
+            estado = "ALERTA"
         else:
-            disp_cell.fill = green_fill
+            estado = "BUENO"
+        row_data = [f["sku"], f["desc"], cat.get("categoria", ""), f["st"], disp]
+        if include_details:
+            row_data.append(f["pre"])
+        row_data.append(estado)
+        ws.append(row_data)
+        est_cell = ws.cell(row=ws.max_row, column=len(headers))
+        if estado == "CRITICO":
+            est_cell.fill = red_fill
+        elif estado == "ALERTA":
+            est_cell.fill = yellow_fill
+        else:
+            est_cell.fill = green_fill
+        ws.cell(row=ws.max_row, column=len(headers)).alignment = Alignment(horizontal="center")
 
     ws.column_dimensions['A'].width = 15
-    ws.column_dimensions['B'].width = 50
-    ws.column_dimensions['D'].width = 15
+    ws.column_dimensions['B'].width = 45
+    ws.column_dimensions['C'].width = 20
+    ws.column_dimensions['D'].width = 12
+    ws.column_dimensions['E'].width = 12
+    if include_details:
+        ws.column_dimensions['F'].width = 12
+        ws.column_dimensions['G'].width = 12
+    else:
+        ws.column_dimensions['F'].width = 12
 
 
 def _write_excel_resumen(ws_resumen, role_lines, grouped_data, sorted_lineas, title,
@@ -844,8 +890,8 @@ def export_to_excel(data_items: list, file_path: str, title: str, include_detail
     Con `raw`/`alm_config` presentes, el Resumen desglosa por rol (VES/QC/Sec./Ext.) y salud.
     """
     wb = Workbook()
-    wb.properties.creator = "ccusi"
-    wb.properties.description = "Generado por G360"
+    wb.properties.creator = APP_AUTHOR
+    wb.properties.description = f"Reporte de stock generado por {APP_NAME} — {datetime.now().strftime('%Y-%m-%d %H:%M')}"
 
     header_fill = PatternFill(start_color="10B981", end_color="10B981", fill_type="solid")
     white_font = Font(color="FFFFFF", bold=True)

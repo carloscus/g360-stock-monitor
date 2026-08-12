@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 import time
@@ -23,15 +24,24 @@ from src.core.constants import (
     WINDOW_MIN_HEIGHT,
     get_local_version,
 )
+from src.core.s1_downloader import get_api_sku_meta
 from src.ui.dashboard import Dashboard
 
-
-_LOG = Path(__file__).resolve().parent.parent / "run_log.txt"
+# Use the shared singleton logger from main.py (set up there first)
+import logging
+_log_logger = logging.getLogger("g360.stock_monitor")
+if not _log_logger.handlers:
+    from logging.handlers import RotatingFileHandler
+    _log_path = Path(__file__).resolve().parent.parent / "run_log.txt"
+    _fmt = logging.Formatter("[%(asctime)s] %(message)s", datefmt="%H:%M:%S")
+    _handler = RotatingFileHandler(_log_path, maxBytes=2 * 1024 * 1024, backupCount=3, encoding="utf-8")
+    _handler.setFormatter(_fmt)
+    _log_logger.addHandler(_handler)
+    _log_logger.setLevel(logging.INFO)
 
 
 def _log(msg: str):
-    with open(_LOG, "a", encoding="utf-8") as f:
-        f.write(f"[{__import__('datetime').datetime.now():%H:%M:%S}] {msg}\n")
+    _log_logger.info(msg)
 
 
 def _load_cache() -> tuple[dict, str | None, str | None]:
@@ -46,24 +56,48 @@ def _load_cache() -> tuple[dict, str | None, str | None]:
         api_ts = data.get("api_timestamp")
         if raw:
             return raw, ts, api_ts
+    except (json.JSONDecodeError, UnicodeDecodeError) as ex:
+        _log(f"_load_cache: corrupt cache file, removing: {ex}")
+        try:
+            CACHE_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
     except Exception:
         pass
     return {}, None, None
 
 
+def _hash_data(raw_data: dict) -> str:
+    """SHA-256 del raw_data para detectar cambios sin descargar dos veces."""
+    serialized = json.dumps(raw_data, sort_keys=True, ensure_ascii=False).encode()
+    return hashlib.sha256(serialized).hexdigest()[:16]
+
+
+def _data_changed(new_data: dict, last_hash: str | None) -> tuple[bool, str]:
+    """Retorna (changed, nuevo_hash)."""
+    h = _hash_data(new_data)
+    return h != last_hash, h
+
+
 def _save_cache(raw_data: dict[str, dict[str, dict]], api_timestamp: str | None = None):
-    """Guarda raw_data completo con timestamp ISO actual y api_timestamp."""
+    """Guarda raw_data completo. Usa api_timestamp del API como fuente de verdad."""
     try:
         CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "raw_data": raw_data,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": api_timestamp or datetime.now().isoformat(),
             "api_timestamp": api_timestamp,
         }
         with open(CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
     except Exception as ex:
         _log(f"_save_cache: ERROR {ex}")
+
+
+def _save_snapshots_before_overwrite():
+    """No-op: snapshots se guardan en DATA_DIR/_snapshot_*.json de forma independiente.
+    La única acción necesaria es que _save_cache no toque esos archivos."""
+    pass
 
 
 def _load_version_check_cache() -> dict | None:
@@ -147,6 +181,9 @@ class StockMonitorApp:
             self._update_info: dict | None = None
             self._last_auto_refresh: float = 0.0
             self._auto_refresh_stop: threading.Event | None = None
+            self._download_lock = threading.Lock()
+            self._last_data_hash: str | None = None
+            self._last_meta_hash: str | None = None
             self._build()
         except Exception:
             _log(f"[FATAL] StockMonitorApp.__init__:\n{traceback.format_exc()}")
@@ -190,9 +227,12 @@ class StockMonitorApp:
             self._raw_data = cache
             self._cache_timestamp = ts
             self._api_timestamp = api_ts
+            # Establecer hash inicial para evitar rebuild si la API no cambió
+            _, initial_hash = _data_changed(cache, None)
+            self._last_data_hash = initial_hash
             self.dashboard.update_data(cache, cache_timestamp=ts, api_timestamp=api_ts)
             self.page.update()
-            _log("_build: cache loaded OK")
+            _log(f"_build: cache loaded OK ({len(cache)} warehouses)")
         elif cache_path.exists():
             _log("_build: cache empty, loading sample_data.json...")
             with open(cache_path, encoding="utf-8") as f:
@@ -265,9 +305,20 @@ class StockMonitorApp:
                 name="auto-refresh",
             )
             t.start()
+            self._auto_refresh_thread = t
             _log(f"_start_auto_refresh: hilo iniciado ({AUTO_REFRESH_INTERVAL}s)")
         except Exception as ex:
             _log(f"_start_auto_refresh: ERROR {ex}")
+
+    def shutdown(self):
+        """Detiene el auto-refresh de forma limpia antes de cerrar."""
+        if self._auto_refresh_stop:
+            _log("_shutdown: deteniendo auto-refresh...")
+            self._auto_refresh_stop.set()
+            t = getattr(self, "_auto_refresh_thread", None)
+            if t and t.is_alive():
+                t.join(timeout=3)
+            _log("_shutdown: auto-refresh detenido")
 
     def _auto_refresh_loop(self):
         while not self._auto_refresh_stop.is_set():
@@ -300,6 +351,10 @@ class StockMonitorApp:
         if not self._raw_data:
             self.dashboard._show_empty_state("Sin datos disponibles")
             self.dashboard._set_empty_state_status("Verificando conexión...", self.dashboard.c["info"])
+        if not self._download_lock.acquire(blocking=False):
+            _log("_load_data: otra descarga en curso, omitiendo")
+            self.dashboard.set_loading(False)
+            return
         try:
             import asyncio
             loop = asyncio.get_running_loop()
@@ -316,7 +371,26 @@ class StockMonitorApp:
                 _log("_load_data: no data, showing error")
                 return
 
+            changed, new_hash = _data_changed(raw, self._last_data_hash)
+            if not changed:
+                # Check if SKU metadata changed (e.g., sin_catalogo, categoria)
+                import hashlib
+                meta_items = sorted(get_api_sku_meta().items())
+                current_meta_hash = hashlib.md5(str(meta_items).encode()).hexdigest()
+                if current_meta_hash == self._last_meta_hash:
+                    _log("_load_data: datos y metadata identicos, omitiendo UI refresh")
+                    self.dashboard.set_loading(False)
+                    self._download_lock.release()
+                    return
+                _log("_load_data: metadata cambio, force rebuild KPIs")
+
+            # Log de almacenes detectados (para debug)
+            alm_codes = list(raw.keys())
+            import re as _re
+            special = [c for c in alm_codes if _re.match(r"^(?:s\d+|118|122)$", c, _re.IGNORECASE)]
+            _log(f"_load_data: {len(alm_codes)} warehouses OK, especiales detectados: {special or 'ninguno'}")
             self._raw_data = raw
+            self._last_data_hash = new_hash
             _save_cache(raw, self._api_timestamp)
             self._cache_timestamp = datetime.now().isoformat()
             self._last_auto_refresh = time.time()
@@ -331,11 +405,13 @@ class StockMonitorApp:
             self.dashboard.status_text.value = f"Error: {str(ex)}"
             self.dashboard.status_text.color = "#ef4444"
             self.dashboard._show_snack(f"Fallo en la descarga: {str(ex)}", is_error=True)
+            self.dashboard.set_offline(True)
             if not self._raw_data:
                 self.dashboard._set_empty_state_status("Error de conexión", self.dashboard.c["error"])
         finally:
             elapsed = time.time() - _t0
             _log(f"_load_data: elapsed={elapsed:.1f}s")
+            self._download_lock.release()
             if elapsed < 2:
                 self.dashboard.set_loading(True, "Actualizando vista...")
                 self.page.update()
@@ -357,22 +433,51 @@ class StockMonitorApp:
                 self.dashboard.status_text.color = self.dashboard.c["accent"]
                 self.dashboard._hide_stale_warning()
             self.dashboard._update_refresh_status(self._cache_timestamp, self._stale_data)
+            self.dashboard.set_offline(False)
             self.dashboard.set_loading(False)
             self.page.update()
             _log("_load_data: done")
 
     def _download_s1(self) -> dict | None:
-        from src.core.s1_downloader import download_source1, get_api_meta, get_api_timestamp
+        from src.core.s1_downloader import download_source1, download_source1_for_warehouse, download_almacenes, get_api_meta, get_api_timestamp
         from src.core.constants import SPECIAL_WAREHOUSE_RE
         try:
-            _log("_download_s1: calling download_source1...")
+            _log("_download_s1: downloading general stock...")
             result = download_source1()
             if not result:
-                _log("_download_s1: first attempt failed, retrying with special warehouses...")
-                result = download_source1(force_special=True)
+                _log("_download_s1: general failed, trying MKTD filter...")
+                result = download_source1(tipo_mktd=True)
             if result:
                 self._stale_data = get_api_meta().get("cache_expirado", False)
                 self._api_timestamp = get_api_timestamp()
+
+                # Fallback: si el API no envía timestamp, usar edad del archivo de cache
+                if not self._api_timestamp and self._cache_timestamp:
+                    try:
+                        cache_age_min = (datetime.now() - datetime.fromisoformat(self._cache_timestamp)).total_seconds() / 60
+                        if cache_age_min > 180:
+                            _log(f"_download_s1: sin api_ts, cache tiene {cache_age_min:.0f} min → marcando stale")
+                            self._stale_data = True
+                    except Exception:
+                        pass
+
+                # Merge S* warehouses from almacenes endpoint + individual downloads
+                _merge_special_warehouses(result)
+
+                # Hash: skip si los datos no cambiaron desde la última carga exitosa
+                _, changed = _data_changed(result, self._last_data_hash)
+                if not changed:
+                    # Check if SKU metadata changed (e.g., sin_catalogo, categoria)
+                    import hashlib
+                    meta_items = sorted(get_api_sku_meta().items())
+                    current_meta_hash = hashlib.md5(str(meta_items).encode()).hexdigest()
+                    if current_meta_hash != self._last_meta_hash:
+                        _log("_download_s1: metadata cambio (sin_catalogo/etc), force rebuild")
+                        self._last_meta_hash = current_meta_hash
+                    else:
+                        _log("_download_s1: datos y metadata identicos, retornando None para skip")
+                        return None
+
                 _log(f"_download_s1: API data OK, {len(result)} warehouses, stale={self._stale_data}, api_ts={self._api_timestamp}")
                 return result
             self._stale_data = False
@@ -390,6 +495,29 @@ class StockMonitorApp:
 
         _log("_download_s1: no data available")
         return None
+
+
+def _merge_special_warehouses(result: dict[str, dict[str, dict]]) -> None:
+    """Agrega almacenes s* informativos (sin stock) al resultado general."""
+    from src.core.s1_downloader import download_almacenes, _warehouse_name
+    from src.core.constants import SPECIAL_WAREHOUSE_RE
+    try:
+        mktd_almacenes = download_almacenes(tipo="mktd")
+        mktd_codes = {str(a.get("codigo", a.get("almacen", ""))).upper() for a in mktd_almacenes if a}
+        special_codes = {c for c in mktd_codes if SPECIAL_WAREHOUSE_RE.match(c)}
+        missing = special_codes - set(result.keys())
+        if not missing:
+            return
+        _log(f"_merge_special_warehouses: {len(missing)} s* warehouses informativos: {sorted(missing)}")
+        for cod in sorted(missing):
+            alm_info = next((a for a in mktd_almacenes if str(a.get("codigo", a.get("almacen", ""))).upper() == cod), None)
+            tipo = (alm_info.get("tipo", "") if alm_info else "").lower()
+            nombre = _warehouse_name(cod, tipo)
+            # Crear entrada vacía: el API no tiene stock para s*, son informativos
+            result[cod] = {}
+            _log(f"_merge_special_warehouses: {cod} ({nombre}) agregado como informativo")
+    except Exception as ex:
+        _log(f"_merge_special_warehouses: ERROR {ex}")
 
 
 def main(page: ft.Page):
