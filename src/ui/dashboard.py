@@ -2745,6 +2745,7 @@ class Dashboard:
             self._refresh_status_badge.bgcolor = rgba(self.c["accent"], 0.08)
         elif self._cache_timestamp:
             self._update_refresh_status(self._cache_timestamp, self._api_timestamp, self._stale_data)
+        self._refresh_status_badge.update()
 
     def _format_ts_display(self, ts: str | None) -> str:
         if not ts:
@@ -2823,14 +2824,17 @@ class Dashboard:
                 f"Click para forzar actualización."
             )
         self._refresh_status_badge.visible = True
+        self._refresh_status_badge.update()
 
     def _show_stale_warning(self):
         self._stale_badge.visible = True
         self._ts_badge.bgcolor = rgba(self.c["warning"], 0.07)
+        self._stale_badge.update()
 
     def _hide_stale_warning(self):
         self._stale_badge.visible = False
         self._ts_badge.bgcolor = rgba(self.c["accent"], 0.07)
+        self._stale_badge.update()
 
     def _update_health_badge(self):
         if not self._health_badge or not self._kpis_alm:
