@@ -14,6 +14,7 @@ build/
 
 # Logs
 run_log.txt
+run_log_*.txt
 dev_logs/
 
 # OS
@@ -29,3 +30,12 @@ Thumbs.db
 
 # PyInstaller build artifacts
 *.exe
+
+# Debug / temp files
+run_log_full.txt
+run_log_stderr.txt
+*.zip
+
+# G360 CLI generated assets
+g360/
+.kombai/

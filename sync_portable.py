@@ -44,9 +44,10 @@ def main():
     print("Iniciando sincronizacion con la version portable...")
 
     files_to_sync = [
-        "main.py", "pyproject.toml", "requirements.txt",
+        "main.py",
         "run.bat", "launch.vbs", "launch_minimized.bat", "create_shortcut.vbs",
-        "README.md", "build-portable.bat",
+        "build-portable.bat",
+        "README.md",
     ]
     for filename in files_to_sync:
         src_file = os.path.join(base_dir, filename)
@@ -59,6 +60,7 @@ def main():
 
     sync_dir(os.path.join(base_dir, "src"), os.path.join(portable_dir, "src"))
     sync_dir(os.path.join(base_dir, "assets"), os.path.join(portable_dir, "assets"))
+    sync_dir(os.path.join(base_dir, "g360_flet"), os.path.join(portable_dir, "g360_flet"))
 
     for pyc in Path(portable_dir).rglob("__pycache__"):
         shutil.rmtree(pyc)

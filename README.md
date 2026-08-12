@@ -173,6 +173,10 @@ g360-erp-stock-monitor/
 ├── pyproject.toml                   # Python project metadata (flet==0.28.3)
 ├── requirements.txt                 # Pip deps
 ├── run.bat                          # Launcher con uv (5 pasos auto-instalable)
+├── launch.vbs                       # Lanzador minimizado (sin consola)
+├── launch_minimized.bat             # Delega a run.bat
+├── create_shortcut.vbs              # Crea acceso directo en escritorio
+├── build-portable.bat               # Build PyInstaller .exe
 ├── skill.json                       # Skill descriptor (cipsa)
 ├── sync_portable.py                 # Sincroniza raíz → carpeta portable
 ├── assets/
@@ -198,6 +202,7 @@ g360-erp-stock-monitor/
 │       ├── dashboard.py             # Layout + interactividad + sort + export
 │       ├── warehouse_card.py        # Card de almacén (3 tipos display)
 │       └── linea_section.py         # Categorías → líneas
+├── g360_flet/                       # G360 signature component (Flet widget)
 └── g360-stock-monitor-portable/     # Distribución portable (sin Python)
 ```
 
