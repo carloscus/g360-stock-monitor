@@ -1,3 +1,0 @@
-- Sidebar lateral fijo (~200px): search, chips verticales, SKUs sin cat, settings
-- Main content expandido: header simplificado, KPIs, transfers, warehouse cards, categorías
-- Chips en sidebar con dot coloreado + toggle on/off
