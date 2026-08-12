@@ -19,10 +19,11 @@ def get_api_meta() -> dict:
 
 
 API_TIMESTAMP_KEYS = ("timestamp", "generated_at", "fecha_actualizacion",
-                       "report_timestamp", "updated_at", "last_updated", "created_at",
-                       "ultima_actualizacion", "actualizado", "fecha", "hora",
-                       "refreshed_at", "last_refresh", "generation_time",
-                       "reporte_timestamp", "data_timestamp", "ts", "report_ts")
+                        "report_timestamp", "updated_at", "last_updated", "created_at",
+                        "ultima_actualizacion", "actualizado", "fecha", "hora",
+                        "refreshed_at", "last_refresh", "generation_time",
+                        "reporte_timestamp", "data_timestamp", "ts", "report_ts",
+                        "fecha_descarga")
 
 
 def get_api_timestamp() -> str | None:
@@ -54,8 +55,13 @@ def _normalize_linea(linea: str) -> tuple[str, str]:
     return linea, linea
 
 
-def download_source1(force_special: bool = False) -> dict[str, dict[str, dict]] | None:
-    """Descarga datos desde S1 con reintentos para despertar Render si está dormido."""
+def download_source1(force_special: bool = False, tipo_mktd: bool = False) -> dict[str, dict[str, dict]] | None:
+    """Descarga datos desde S1 con reintentos.
+
+    Args:
+        force_special: incluye almacenes s* con include_special=true
+        tipo_mktd: filtra por SKUs que tengan al menos un almacén tipo MKTD
+    """
     headers = {
         "x-api-key": S1_API_KEY,
         "User-Agent": (
@@ -67,11 +73,14 @@ def download_source1(force_special: bool = False) -> dict[str, dict[str, dict]] 
     params = {}
     if force_special:
         params["include_special"] = "true"
+    if tipo_mktd:
+        params["tipo"] = "mktd"
 
     last_exception = None
+    label = "MKTD" if tipo_mktd else ("special" if force_special else "general")
     for attempt in range(3):
         try:
-            resp = requests.get(f"{S1_API_URL}/stock", headers=headers, timeout=(15, 60), params=params)
+            resp = requests.get(f"{S1_API_URL}/stock", headers=headers, timeout=(30, 120), params=params)
             resp.raise_for_status()
             data = resp.json()
 
@@ -80,17 +89,64 @@ def download_source1(force_special: bool = False) -> dict[str, dict[str, dict]] 
 
             parsed = _parse_source1(data)
             if parsed:
-                _enrich_special_warehouses(parsed)
+                _log_warehouses(parsed, source=label)
             return parsed
 
         except Exception as ex:
             last_exception = ex
-            print(f"[S1 Downloader] Error intento {attempt+1}/3: {ex}")
+            print(f"[S1 Downloader] Error intento {attempt+1}/3 ({label}): {ex}")
             if attempt < 2:
                 time.sleep(2 ** attempt)
 
-    print(f"[S1 Downloader] Todos los intentos fallaron. Último error: {last_exception}")
+    print(f"[S1 Downloader] Todos los intentos fallaron en {label}. Último error: {last_exception}")
     return None
+
+
+def download_source1_for_warehouse(warehouse_code: str) -> dict[str, dict] | None:
+    """Descarga stock de un almacén específico por código (usado para s*)."""
+    headers = {
+        "x-api-key": S1_API_KEY,
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36"
+        ),
+    }
+    params = {"almacen": warehouse_code}
+    for attempt in range(3):
+        try:
+            resp = requests.get(f"{S1_API_URL}/stock", headers=headers, timeout=(30, 120), params=params)
+            resp.raise_for_status()
+            data = resp.json()
+            parsed = _parse_source1(data)
+            if parsed:
+                _log_warehouses(parsed, source=f"warehouse:{warehouse_code}")
+            return parsed
+        except Exception as ex:
+            print(f"[S1 Downloader] Error intentando {warehouse_code} intento {attempt+1}/3: {ex}")
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+    return None
+
+
+def download_almacenes(tipo: str | None = None) -> list[dict]:
+    """Descarga la lista de almacenes desde /api/v1/almacenes con filtro opcional por tipo."""
+    _UA = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/122.0.0.0 Safari/537.36"
+    )
+    headers = {"x-api-key": S1_API_KEY, "User-Agent": _UA}
+    params = {"tipo": tipo} if tipo else {}
+    try:
+        resp = requests.get(f"{S1_API_URL}/almacenes", headers=headers, timeout=(10, 30), params=params)
+        resp.raise_for_status()
+        data = resp.json()
+        items = data if isinstance(data, list) else data.get("items", data.get("almacenes", []))
+        return items
+    except Exception as ex:
+        print(f"[S1 Downloader] Error en /almacenes: {ex}")
+        return []
 
 
 def _enrich_special_warehouses(parsed: dict[str, dict[str, dict]]):
@@ -99,6 +155,28 @@ def _enrich_special_warehouses(parsed: dict[str, dict[str, dict]]):
         if SPECIAL_WAREHOUSE_RE.match(cod):
             for info in parsed[cod].values():
                 info.setdefault("almacen_tipo", "informativo")
+
+
+def _warehouse_name(cod: str, tipo: str) -> str:
+    """Genera nombre legible para almacén cuando la API no provee uno."""
+    tipo = (tipo or "").lower().strip()
+    if "mktd" in tipo:
+        return f"MKTD {cod}"
+    if "venta" in tipo:
+        if cod == "VES":
+            return "Venta Principal"
+        return f"Almacén {cod}"
+    if cod.startswith("S"):
+        return f"MKTD {cod}"
+    return f"Almacén {cod}"
+
+
+def _log_warehouses(parsed: dict[str, dict[str, dict]], source: str = "general"):
+    """Log simple de warehouses detectados compatible con el handler de _log."""
+    all_codes = list(parsed.keys())
+    import re as _re
+    specials = [c for c in all_codes if _re.match(r"^(?:s\d+|118|122)$", c, _re.IGNORECASE)]
+    print(f"[S1 Downloader] {source}: {len(all_codes)} warehouses: {all_codes} | especiales: {specials or 'ninguno'}")
 
 
 def _parse_source1(data: dict) -> dict[str, dict[str, dict]]:
@@ -136,15 +214,27 @@ def _parse_source1(data: dict) -> dict[str, dict[str, dict]]:
         }
 
         for alm in item.get("almacenes", []):
-            almacen = str(alm.get("almacen", "")).strip().upper()
+            almacen_raw = str(alm.get("almacen", "")).strip()
+            almacen = almacen_raw.upper()
             if not almacen:
                 continue
 
-            if SPECIAL_WAREHOUSE_RE.match(almacen):
-                tipo = alm.get("tipo", "")
-                if not tipo:
+            # Capturar tipo del API (venta/mktd) para clasificación
+            alm_tipo = str(alm.get("tipo", "")).lower().strip()
+            if SPECIAL_WAREHOUSE_RE.match(almacen_raw):
+                if not alm_tipo:
                     alm = dict(alm)
                     alm["tipo"] = "informativo"
+                    alm_tipo = "mktd"  # s* son mktd por defecto
+                # Nombre del almacén
+                alm_nombre = alm.get("nombre") or alm.get("descripcion") or alm.get("label")
+                if not alm_nombre or not str(alm_nombre).strip():
+                    alm_nombre = _warehouse_name(almacen, alm_tipo)
+                alm["nombre_almacen"] = str(alm_nombre).strip()
+            else:
+                # Para almacenes normales, detectar tipo
+                if not alm_tipo:
+                    alm_tipo = "venta"  # default
 
             almacen_row = resultado.setdefault(almacen, {})
             if sku not in almacen_row:
@@ -154,7 +244,9 @@ def _parse_source1(data: dict) -> dict[str, dict[str, dict]]:
                     "disponible": 0,
                     "descripcion": descripcion,
                     "sku_unit": sku_unit,
-                    "almacen_tipo": str(alm.get("tipo", "")).strip().lower(),
+                    "almacen_tipo": alm_tipo,
+                    "almacen_categoria": alm_tipo,  # venta o mktd
+                    "nombre_almacen": alm.get("nombre_almacen", f"ALMACEN_{almacen}"),
                 }
             almacen_row[sku]["stock"] += int(alm.get("stock", 0) or 0)
             almacen_row[sku]["predespacho"] += int(alm.get("predespacho", 0) or 0)
