@@ -439,7 +439,7 @@ class StockMonitorApp:
             _log("_load_data: done")
 
     def _download_s1(self) -> dict | None:
-        from src.core.s1_downloader import download_source1, download_source1_for_warehouse, download_almacenes, get_api_meta, get_api_timestamp
+        from src.core.s1_downloader import download_source1, download_source1_for_warehouse, download_almacenes, get_api_meta, get_api_timestamp, get_api_sku_meta
         from src.core.constants import SPECIAL_WAREHOUSE_RE
         try:
             _log("_download_s1: downloading general stock...")
