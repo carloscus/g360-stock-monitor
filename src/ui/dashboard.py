@@ -2808,7 +2808,7 @@ class Dashboard:
 
         remaining = max(0, ttl_min - int(age_min))
         is_fresh = age_min <= ttl_min * 0.5
-        is_warn = age_min > ttl_min and not stale
+        is_warn = age_min >= ttl_min and not stale  # expired but auto-refresh not yet triggered
         is_stale = stale or cache_expired or age_min > ttl_min * 2
 
         if is_stale:
