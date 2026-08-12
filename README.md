@@ -394,9 +394,10 @@ g360-stock-monitor-portable\launch.vbs
 | Ago 2026 | KPIs con glow backlight unificado | Todas las cards tienen el mismo tratamiento visual con color sólido |
 | Ago 2026 | Nombres de archivo Excel con timestamp | Formato `G360_{slug}_{YYYYMMDD}_{HHMMSS}.xlsx`, author `g360-stock-monitor` |
 | Ago 2026 | Badge refresh con update() | Se agregó `.update()` después de cada cambio de propiedades para que el timer se refresque cada tick (1s) |
-| Ago 2026 | Timezone UTC→local en badge | Los timestamps API vienen en UTC (`Z`); se convierten a zona local antes de calcular edad para evitar valores negativos |
+| Ago 2026 | Timezone en badge | La API envía `fecha_descarga` en Lima (UTC-5) con offset explícito; se usa `replace(tzinfo=None)` para comparar con `datetime.now()` sin conversion |
 | Ago 2026 | Captura de `fecha_descarga` | La API no envía timestamp estándar; se agrega `fecha_descarga` a `API_TIMESTAMP_KEYS` para capturar la hora real del reporte |
 | Ago 2026 | Badge TTL dinámico del API | Lee `cache_expiro_en` (900s) y `cache_expirado` del API; muestra tiempo restante, estado del cache (activo/vencido/expirado) y colores según TTL real |
+| Ago 2026 | Umbral warn >= TTL | El badge cambia a amarillo cuando `age >= ttl` (no `> ttl`) para detectar expiración inmediata al cumplirse el TTL |
 | Ago 2026 | Fix import `get_api_sku_meta` | Se agregó al import en `app.py`; su ausencia causaba crash silencioso en el executor al hacer hash de metadata |
 
 ---
