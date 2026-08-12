@@ -1,0 +1,53 @@
+================================================================================
+                    G360 Stock Monitor - Instrucciones de Instalacion
+================================================================================
+
+REQUISITOS DEL SISTEMA
+----------------------
+  - Windows 10 o superior
+  - Conexion a internet (solo en la primera ejecucion)
+  - Espacio en disco: ~200 MB
+
+
+METODO 1: EJECUCION DIRECTA (Recomendado)
+------------------------------------------
+  1. Copiar la carpeta "g360-stock-monitor-portable" a donde desees
+  2. Hacer doble clic en "launch.vbs"
+  3. La primera vez esperara a que se instale todo (unos 2-3 minutos)
+  4. Las siguientes veces iniciara inmediatamente
+
+
+METODO 2: DESDE CONSOLA
+------------------------
+  1. Abrir PowerShell o CMD en la carpeta del proyecto
+  2. Ejecutar: run.bat
+  3. El launcher instalara automaticamente:
+     - uv (gestionador de Python)
+     - Python 3.11
+     - Dependencias (flet, requests, openpyxl)
+  4. La app se abrira automaticamente
+
+
+PRIMERA EJECUCION
+------------------
+  - Se descargaran las dependencias desde internet (~50 MB)
+  - Se creara el entorno virtual (.venv)
+  - Todo esto se hace automatico, no requiere intervencion
+  - Si hay errores de red, repetir la ejecucion
+
+
+NOTAS IMPORTANTES
+-----------------
+  - No es necesario instalar Python manualmente
+  - Los datos se guardan localmente en assets/data/
+  - La app se actualiza automaticamente cada 15 minutos desde S1
+  - Para actualizar la app, simplemente cerrar y volver a abrir
+
+
+SOPORTE
+--------
+  - Ver run_log.txt para detalles de errores
+  - Revisar README.md para configuracion avanzada
+
+
+================================================================================

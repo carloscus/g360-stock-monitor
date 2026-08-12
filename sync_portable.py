@@ -46,7 +46,7 @@ def main():
     files_to_sync = [
         "main.py",
         "run.bat", "launch.vbs", "launch_minimized.bat", "create_shortcut.vbs",
-        "build-portable.bat",
+        "build-portable.bat", "INSTALL.txt",
         "README.md",
     ]
     for filename in files_to_sync:
