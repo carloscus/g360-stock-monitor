@@ -80,6 +80,7 @@ def download_source1(force_special: bool = False, tipo_mktd: bool = False) -> di
     label = "MKTD" if tipo_mktd else ("special" if force_special else "general")
     for attempt in range(3):
         try:
+            params["fuente"] = "todas"
             resp = requests.get(f"{S1_API_URL}/stock", headers=headers, timeout=(30, 120), params=params)
             resp.raise_for_status()
             data = resp.json()
@@ -113,6 +114,7 @@ def download_source1_for_warehouse(warehouse_code: str) -> dict[str, dict] | Non
         ),
     }
     params = {"almacen": warehouse_code}
+    params["fuente"] = "todas"
     for attempt in range(3):
         try:
             resp = requests.get(f"{S1_API_URL}/stock", headers=headers, timeout=(30, 120), params=params)
