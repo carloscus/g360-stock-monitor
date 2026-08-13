@@ -498,7 +498,12 @@ class StockMonitorApp:
 
 
 def _merge_special_warehouses(result: dict[str, dict[str, dict]]) -> None:
-    """Agrega almacenes s* informativos (sin stock) al resultado general."""
+    """Agrega almacenes s* faltantes como placeholders cuando la respuesta no los incluye.
+
+    El API trae stock real para los almacenes s* (fuente general/sucursales consolidada).
+    Esta funcion solo garantiza que todos los almacenes s* conocidos aparezcan en el UI
+    si por algun motivo la respuesta actual no los incluye.
+    """
     from src.core.s1_downloader import download_almacenes, _warehouse_name
     from src.core.constants import SPECIAL_WAREHOUSE_RE
     try:
@@ -508,14 +513,14 @@ def _merge_special_warehouses(result: dict[str, dict[str, dict]]) -> None:
         missing = special_codes - set(result.keys())
         if not missing:
             return
-        _log(f"_merge_special_warehouses: {len(missing)} s* warehouses informativos: {sorted(missing)}")
+        _log(f"_merge_special_warehouses: {len(missing)} s* warehouses sin datos en la respuesta: {sorted(missing)}")
         for cod in sorted(missing):
             alm_info = next((a for a in mktd_almacenes if str(a.get("codigo", a.get("almacen", ""))).upper() == cod), None)
             tipo = (alm_info.get("tipo", "") if alm_info else "").lower()
             nombre = _warehouse_name(cod, tipo)
-            # Crear entrada vacía: el API no tiene stock para s*, son informativos
+            # Placeholder vacio: el API no trajo stock para este s* en la respuesta actual.
             result[cod] = {}
-            _log(f"_merge_special_warehouses: {cod} ({nombre}) agregado como informativo")
+            _log(f"_merge_special_warehouses: {cod} ({nombre}) agregado como placeholder")
     except Exception as ex:
         _log(f"_merge_special_warehouses: ERROR {ex}")
 
