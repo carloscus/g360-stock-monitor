@@ -15,12 +15,12 @@ from src.core.processor import (
     sugerir_transferencias,
     export_to_excel,
     _extract_report_skus,
-    reload_catalogo,
     _make_report_name,
     update_catalogo_sku,
     _sku_info,
+    export_catalogo_to_excel,
 )
-from src.core.s1_downloader import get_api_sku_meta
+from src.core.s1_downloader import get_api_sku_meta, download_catalogo
 from src.ui.warehouse_card import WarehouseCard
 from src.ui.linea_section import LineaSection
 
@@ -83,7 +83,6 @@ class Dashboard:
         self._transfer_sort_rev = False
         self._sin_cat_count = 0
         self._file_picker = ft.FilePicker()
-        self._catalog_picker = ft.FilePicker()
         self._active_dlg = None
         self._filtro_salud = "todo"
         self._theme_button: ft.IconButton | None = None
@@ -198,7 +197,7 @@ class Dashboard:
         return self._main_container
 
     def register_overlay(self):
-        self.page.overlay.extend([self._file_picker, self._catalog_picker])
+        self.page.overlay.extend([self._file_picker])
         self.page.update()
 
     def _build_sidebar(self) -> ft.Container:
@@ -610,44 +609,29 @@ class Dashboard:
             self.page.close(dlg)
             self._apply_filters() # Refrescar la vista principal con nuevos roles
 
-        def _on_catalog_result(e: ft.FilePickerResultEvent):
-            if not e.files:
-                return
-            try:
-                import json
-                import shutil
-                from src.core.constants import DATA_DIR
-                src_path = e.files[0].path
-                dest_path = DATA_DIR / "catalogo_productos.json"
-                with open(src_path, encoding="utf-8") as f:
-                    test_data = json.load(f)
-                if not isinstance(test_data, dict) or "productos" not in test_data:
-                    raise ValueError("El archivo debe ser un JSON con clave 'productos'")
-                productos = test_data["productos"]
-                if not isinstance(productos, list):
-                    raise ValueError("La clave 'productos' debe contener un array")
-                for p in productos[:5]:
-                    if not isinstance(p, dict) or "sku" not in p:
-                        raise ValueError("Cada producto debe ser un objeto con campo 'sku'")
-                shutil.copy(src_path, dest_path)
-                reload_catalogo()
-                self.page.close(dlg)
-                self._show_snack("Catálogo actualizado e importado con éxito")
-                self._apply_filters()
-            except ValueError as ex:
-                self._show_snack(f"Formato inválido: {ex}", is_error=True)
-            except Exception as ex:
-                self._show_snack(f"Error al cargar catálogo: {ex}", is_error=True)
+        def _on_catalog_export(e):
+            def on_result(pe: ft.FilePickerResultEvent):
+                if not pe.path:
+                    return
+                try:
+                    items = download_catalogo()
+                    if not items:
+                        raise ValueError("No se pudo descargar el catálogo del API")
+                    export_catalogo_to_excel(items, pe.path)
+                    self._show_snack(f"Catálogo exportado: {len(items)} SKUs")
+                    import os
+                    os.startfile(pe.path)
+                except Exception as ex:
+                    self._show_snack(f"Error al exportar catálogo: {ex}", is_error=True)
 
-        def _on_catalog_import(e):
-            self._catalog_picker.on_result = _on_catalog_result
-            self._catalog_picker.pick_files(allowed_extensions=["json"])
+            self._file_picker.on_result = on_result
+            self._file_picker.save_file(file_name=f"{_make_report_name('catálogo maestro')}.xlsx")
 
-        catalog_btn = ft.ElevatedButton(
-            "Importar Nuevo Catálogo JSON",
-            icon=ft.Icons.UPLOAD_FILE,
-            on_click=_on_catalog_import,
-            style=ft.ButtonStyle(bgcolor={"": self.c["surface_variant"]}, color={"": self.c["text_primary"]})
+        catalog_export_btn = ft.ElevatedButton(
+            "Exportar Catálogo XLSX",
+            icon=ft.Icons.DOWNLOAD,
+            on_click=_on_catalog_export,
+            style=ft.ButtonStyle(bgcolor={"": self.c["surface_variant"]}, color={"": self.c["text_primary"]}),
         )
 
         dlg = ft.AlertDialog(
@@ -655,14 +639,11 @@ class Dashboard:
             content=ft.Container(
                 content=ft.Column([
                     ft.Column(rows, spacing=0, scroll=ft.ScrollMode.AUTO, expand=True),
-                    ft.Divider(height=16, color=rgba(self.c["border"], 0.5)),
-                    ft.Container(
-                        content=ft.Column([
-                            ft.Text("CATÁLOGO DE PRODUCTOS", size=10, weight=ft.FontWeight.W_700, color=self.c["accent"]),
-                            catalog_btn,
-                        ], spacing=6),
-                        padding=ft.Padding(left=4, right=4, top=0, bottom=4),
-                    ),
+                    ft.Divider(height=12, color=rgba(self.c["border"], 0.5)),
+                    ft.Row([
+                        ft.Text("Respaldo del catálogo maestro (sin stock)", size=11, color=self.c["text_muted"]),
+                        catalog_export_btn,
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 ], spacing=8),
                 width=680, height=480
             ),

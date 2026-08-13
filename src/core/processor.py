@@ -939,3 +939,60 @@ def export_to_excel(data_items: list, file_path: str, title: str, include_detail
             wb.active = 0
 
     wb.save(file_path)
+
+
+CATALOG_COLUMNS = [
+    ("orden", "Orden"),
+    ("sku", "SKU"),
+    ("nombre", "Nombre"),
+    ("nombre_corto", "Nombre Corto"),
+    ("linea", "Línea"),
+    ("grupo", "Grupo"),
+    ("tipo", "Tipo"),
+    ("familia", "Familia"),
+    ("categoria", "Categoría"),
+    ("estado_linea", "Estado Línea"),
+    ("un_bx", "Unidades/Caja"),
+    ("peso_kg", "Peso (kg)"),
+    ("precio", "Precio"),
+    ("ean13", "EAN13"),
+    ("ean14", "EAN14"),
+    ("keywords", "Keywords"),
+]
+
+
+def export_catalogo_to_excel(items: list, file_path: str) -> int:
+    """Genera un XLSX con el catálogo maestro (sin almacenes ni stock). Devuelve filas exportadas."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Catálogo"
+    wb.properties.creator = APP_AUTHOR
+    wb.properties.description = f"Catálogo maestro generado por {APP_NAME} — {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+
+    header_fill = PatternFill(start_color="10B981", end_color="10B981", fill_type="solid")
+    white_font = Font(color="FFFFFF", bold=True)
+
+    for col, (_, header) in enumerate(CATALOG_COLUMNS, start=1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = white_font
+        cell.alignment = Alignment(horizontal="center")
+
+    for r, item in enumerate(items, start=2):
+        for col, (key, _) in enumerate(CATALOG_COLUMNS, start=1):
+            val = item.get(key)
+            if isinstance(val, list):
+                val = ", ".join(str(v) for v in val)
+            ws.cell(row=r, column=col, value=val)
+
+    for col, (key, _) in enumerate(CATALOG_COLUMNS, start=1):
+        max_len = len(key)
+        for r in range(2, min(len(items) + 2, 400)):
+            v = ws.cell(row=r, column=col).value
+            if v is not None:
+                max_len = max(max_len, len(str(v)))
+        ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = min(max_len + 2, 60)
+
+    ws.freeze_panes = "A2"
+    wb.save(file_path)
+    return len(items)
