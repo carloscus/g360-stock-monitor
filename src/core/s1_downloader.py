@@ -171,6 +171,27 @@ def download_catalogo() -> list[dict]:
     return []
 
 
+def download_stock_items(fuente: str = "todas") -> list[dict]:
+    """Descarga items de stock crudos desde /stock (con almacenes y metadatos de catalogo)."""
+    _UA = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/122.0.0.0 Safari/537.36"
+    )
+    headers = {"x-api-key": S1_API_KEY, "User-Agent": _UA}
+    try:
+        resp = requests.get(f"{S1_API_URL}/stock", headers=headers, timeout=(30, 120),
+                            params={"fuente": fuente, "limit": 5000})
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get("items", [])
+        if isinstance(items, list):
+            return items
+    except Exception as ex:
+        print(f"[S1 Downloader] Error en /stock items: {ex}")
+    return []
+
+
 def _enrich_special_warehouses(parsed: dict[str, dict[str, dict]]):
     """Para almacenes s* detectados, asegura rol informativo y metadatos básicos."""
     for cod in list(parsed.keys()):

@@ -20,7 +20,7 @@ from src.core.processor import (
     _sku_info,
     export_catalogo_to_excel,
 )
-from src.core.s1_downloader import get_api_sku_meta, download_catalogo
+from src.core.s1_downloader import get_api_sku_meta, download_catalogo, download_stock_items
 from src.ui.warehouse_card import WarehouseCard
 from src.ui.linea_section import LineaSection
 
@@ -617,8 +617,9 @@ class Dashboard:
                     items = download_catalogo()
                     if not items:
                         raise ValueError("No se pudo descargar el catálogo del API")
-                    export_catalogo_to_excel(items, pe.path)
-                    self._show_snack(f"Catálogo exportado: {len(items)} SKUs")
+                    sin_items = [it for it in download_stock_items() if it.get("sin_catalogo")]
+                    res = export_catalogo_to_excel(items, pe.path, sin_catalogo_items=sin_items)
+                    self._show_snack(f"Catálogo exportado: {res['catalogo']} SKUs | sin catálogo: {res['sin_catalogo']}")
                     import os
                     os.startfile(pe.path)
                 except Exception as ex:

@@ -960,39 +960,65 @@ CATALOG_COLUMNS = [
     ("keywords", "Keywords"),
 ]
 
+SIN_CATALOGO_COLUMNS = [
+    ("sku", "SKU"),
+    ("descripcion", "Descripción"),
+    ("um", "UM"),
+    ("linea", "Línea"),
+    ("grupo", "Grupo"),
+    ("tipo", "Tipo"),
+    ("familia", "Familia"),
+    ("categoria", "Categoría"),
+    ("estado_linea", "Estado Línea"),
+]
 
-def export_catalogo_to_excel(items: list, file_path: str) -> int:
-    """Genera un XLSX con el catálogo maestro (sin almacenes ni stock). Devuelve filas exportadas."""
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Catálogo"
-    wb.properties.creator = APP_AUTHOR
-    wb.properties.description = f"Catálogo maestro generado por {APP_NAME} — {datetime.now().strftime('%Y-%m-%d %H:%M')}"
 
+def _fill_excel_sheet(ws, columns: list, rows: list) -> None:
     header_fill = PatternFill(start_color="10B981", end_color="10B981", fill_type="solid")
     white_font = Font(color="FFFFFF", bold=True)
 
-    for col, (_, header) in enumerate(CATALOG_COLUMNS, start=1):
+    for col, (_, header) in enumerate(columns, start=1):
         cell = ws.cell(row=1, column=col, value=header)
         cell.fill = header_fill
         cell.font = white_font
         cell.alignment = Alignment(horizontal="center")
 
-    for r, item in enumerate(items, start=2):
-        for col, (key, _) in enumerate(CATALOG_COLUMNS, start=1):
+    for r, item in enumerate(rows, start=2):
+        for col, (key, _) in enumerate(columns, start=1):
             val = item.get(key)
             if isinstance(val, list):
                 val = ", ".join(str(v) for v in val)
             ws.cell(row=r, column=col, value=val)
 
-    for col, (key, _) in enumerate(CATALOG_COLUMNS, start=1):
+    for col, (key, _) in enumerate(columns, start=1):
         max_len = len(key)
-        for r in range(2, min(len(items) + 2, 400)):
+        for r in range(2, min(len(rows) + 2, 400)):
             v = ws.cell(row=r, column=col).value
             if v is not None:
                 max_len = max(max_len, len(str(v)))
         ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = min(max_len + 2, 60)
 
     ws.freeze_panes = "A2"
+
+
+def export_catalogo_to_excel(items: list, file_path: str, sin_catalogo_items: list | None = None) -> dict:
+    """Genera un XLSX con el catálogo maestro (sin almacenes ni stock).
+
+    Si se pasa `sin_catalogo_items` (SKUs de stock sin datos de catálogo),
+    agrega una hoja "Sin Catálogo". Devuelve {catalogo, sin_catalogo} con los conteos.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Catálogo"
+    wb.properties.creator = APP_AUTHOR
+    wb.properties.description = f"Catálogo maestro generado por {APP_NAME} — {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+
+    _fill_excel_sheet(ws, CATALOG_COLUMNS, items)
+
+    sin_items = sin_catalogo_items or []
+    if sin_items:
+        ws_sin = wb.create_sheet(title="Sin Catálogo")
+        _fill_excel_sheet(ws_sin, SIN_CATALOGO_COLUMNS, sin_items)
+
     wb.save(file_path)
-    return len(items)
+    return {"catalogo": len(items), "sin_catalogo": len(sin_items)}
