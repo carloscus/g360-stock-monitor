@@ -8,7 +8,8 @@ except ImportError:
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 ASSETS_DIR = BASE_DIR / "assets"
-DATA_DIR = ASSETS_DIR / "data"
+DATA_DIR = BASE_DIR / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 LINEAS_FILE = DATA_DIR / "lineas.json"
 SNAPSHOT_DIR = BASE_DIR / ".snapshots"
 

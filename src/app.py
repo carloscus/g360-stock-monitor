@@ -94,12 +94,6 @@ def _save_cache(raw_data: dict[str, dict[str, dict]], api_timestamp: str | None 
         _log(f"_save_cache: ERROR {ex}")
 
 
-def _save_snapshots_before_overwrite():
-    """No-op: snapshots se guardan en DATA_DIR/_snapshot_*.json de forma independiente.
-    La única acción necesaria es que _save_cache no toque esos archivos."""
-    pass
-
-
 def _load_version_check_cache() -> dict | None:
     if not VERSION_CACHE_FILE.exists():
         return None
@@ -439,7 +433,7 @@ class StockMonitorApp:
             _log("_load_data: done")
 
     def _download_s1(self) -> dict | None:
-        from src.core.s1_downloader import download_source1, download_source1_for_warehouse, download_almacenes, get_api_meta, get_api_timestamp, get_api_sku_meta
+        from src.core.s1_downloader import download_source1, download_almacenes, get_api_meta, get_api_timestamp, get_api_sku_meta
         from src.core.constants import SPECIAL_WAREHOUSE_RE
         try:
             _log("_download_s1: downloading general stock...")

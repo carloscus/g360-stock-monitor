@@ -7,7 +7,7 @@ from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment
 
-from src.core.constants import LINEAS_FILE, DATA_DIR, PRIMARY_CATEGORIES
+from src.core.constants import LINEAS_FILE, DATA_DIR
 from src.core.s1_downloader import get_api_sku_meta
 
 

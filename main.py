@@ -6,6 +6,11 @@ import traceback
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+try:
+    import pip_system_certs  # noqa: F401
+except ImportError:
+    pass
+
 import flet as ft
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -39,12 +44,11 @@ def main(page: ft.Page):
 if __name__ == "__main__":
     _log("MAIN_START: __name__ == __main__")
     try:
-        _log("PRE: llamando a ft.app(main) desktop...")
-        ft.app(main, view=ft.AppView.FLET_APP)
-        _log("POST: ft.app(main) retorno OK")
+        _log("PRE: llamando a ft.app(target=main)...")
+        ft.app(target=main)
+        _log("POST: ft.app(target=main) retorno OK")
     except Exception as e:
-        _log(f"[FATAL] Error en ft.run:\n{traceback.format_exc()}")
+        _log(f"[FATAL] Error en ft.app:\n{traceback.format_exc()}")
         print(f"\n[FATAL] Error al iniciar la aplicacion: {e}", flush=True)
         traceback.print_exc()
         input("\nPresione Enter para salir...")
-

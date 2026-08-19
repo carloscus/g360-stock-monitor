@@ -8,6 +8,7 @@ build/
 
 # Virtual environment
 .venv/
+test_venv/
 
 # Environment
 .env

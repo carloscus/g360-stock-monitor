@@ -39,7 +39,7 @@ PRIMERA EJECUCION
 NOTAS IMPORTANTES
 -----------------
   - No es necesario instalar Python manualmente
-  - Los datos se guardan localmente en assets/data/
+  - Los datos se guardan localmente en data/
   - La app se actualiza automaticamente cada 15 minutos desde S1
   - Para actualizar la app, simplemente cerrar y volver a abrir
 

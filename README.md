@@ -124,7 +124,7 @@ Aplicación de escritorio que monitorea stock en tiempo real desde el ERP de CIP
 
 | Capa | Archivo | Responsabilidad |
 |------|---------|-----------------|
-| **Entry** | `main.py` | Boot, sys.path, `ft.app(main)` |
+| **Entry** | `main.py` | Boot, sys.path, `ft.run(main)`, `pip_system_certs.install()` |
 | **App** | `src/app.py` | Page setup, ciclo de vida, orquestación download → update, registro de FilePickers en overlay |
 | **Core** | `src/core/s1_downloader.py` | HTTP GET a S1 API, parse JSON, populate SKU metadata (`sin_catalogo`, categoría, etc.) |
 | **Core** | `src/core/processor.py` | KPIs por almacén, líneas, categorías, transferencias, export a Excel (nombres con timestamp, author `g360-stock-monitor`) |
@@ -409,6 +409,7 @@ g360-stock-monitor-portable\launch.vbs
 | Ago 2026 | Fix import `get_api_sku_meta` | Se agregó al import en `app.py`; su ausencia causaba crash silencioso en el executor al hacer hash de metadata |
 | Ago 2026 | Comportamiento fuera de horario | API genera batches solo Lun-Sab 7:00-22:59 (Lima); fuera de horario sirve último cache con TTL 15 min; badge muestra stale cuando `cache_expirado=True` |
 | Ago 2026 | Exportar Catálogo XLSX (2 hojas) | Botón en Config de Almacenes: hoja "Catálogo" (catálogo maestro del API, 16 campos) + hoja "Sin Catálogo" (SKUs stock-only sin datos de catálogo) |
+| Ago 2026 | Downgrade Flet 0.85.2 → 0.28.3 | Se descubrió que los clientes desktop de Flet 0.84+ (descargados a `~/.flet/client/`) no establecen conexión TCP a `localhost` en esta máquina Windows (todos los binarios 0.84.0–0.86.5 fallan; incluso el consolidador dejó de funcionar). El cliente de Flet 0.28.3 viene empaquetado dentro del wheel (`flet_desktop/app/flet/`) y sí conecta. Se revierte a `ft.app(target=main)`, `page.window_*`, `page.snack_bar` y Python 3.11 para mantener compatibilidad con 0.28.3. `DATA_DIR` permanece en `data/` (fuera de `assets/`). |
 
 ---
 

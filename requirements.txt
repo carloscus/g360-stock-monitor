@@ -1,3 +1,4 @@
 flet[desktop]==0.28.3
+pip_system_certs>=5.3.0
 requests>=2.31.0
 openpyxl>=3.0.0
